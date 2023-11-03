@@ -91,11 +91,11 @@ def main():
 
     # first try importing just the commands module to make sure
     # dnsviz is properly reachable with the current path
-    importlib.import_module('%s.%s' % (CMD_DIR1, CMD_DIR2))
+    importlib.import_module(f'{CMD_DIR1}.{CMD_DIR2}')
 
     # now try importing the module for the actual command
     try:
-        mod = importlib.import_module('%s.%s.%s' % (CMD_DIR1, CMD_DIR2, command))
+        mod = importlib.import_module(f'{CMD_DIR1}.{CMD_DIR2}.{command}')
     except ImportError:
         # See if the filename corresponding to the module we were trying to
         # import was found in the stack.  If so, then the error is with
@@ -122,9 +122,8 @@ def main():
 
         if found_file:
             raise
-        else:
-            sys.stderr.write('Invalid command: %s\n' % command)
-            sys.exit(1)
+        sys.stderr.write('Invalid command: %s\n' % command)
+        sys.exit(1)
 
     if args[0] == 'help':
         helper = mod.build_helper(logger, sys.argv[0], command)

@@ -41,16 +41,16 @@ class DNSVizProbeOptionsTestCase(unittest.TestCase):
 
     def test_authoritative_option(self):
         arg1 = 'example.com+:ns1.example.com=192.0.2.1:1234,ns1.example.com=[2001:db8::1],' + \
-                'ns1.example.com=192.0.2.2,ns2.example.com=[2001:db8::2],a.root-servers.net,192.0.2.3'
+                    'ns1.example.com=192.0.2.2,ns2.example.com=[2001:db8::2],a.root-servers.net,192.0.2.3'
 
         arg1_with_spaces = ' example.com+ : ns1.example.com = [192.0.2.1]:1234 , ns1.example.com = [2001:db8::1], ' + \
-                'ns1.example.com = [192.0.2.2] , ns2.example.com = [2001:db8::2] , a.root-servers.net , 192.0.2.3 '
+                    'ns1.example.com = [192.0.2.2] , ns2.example.com = [2001:db8::2] , a.root-servers.net , 192.0.2.3 '
 
         arg2 = 'example.com:ns1.example.com=192.0.2.1'
 
-        arg3 = 'example.com:%s' % EXAMPLE_COM_ZONE
+        arg3 = f'example.com:{EXAMPLE_COM_ZONE}'
 
-        arg4 = 'example.com+:%s' % EXAMPLE_COM_ZONE
+        arg4 = f'example.com+:{EXAMPLE_COM_ZONE}'
 
         delegation_mapping1 = {
                 (dns.name.from_text('example.com'), dns.rdatatype.NS):
@@ -182,12 +182,12 @@ class DNSVizProbeOptionsTestCase(unittest.TestCase):
 
     def test_delegation_option(self):
         arg1 = 'example.com:ns1.example.com=192.0.2.1:1234,ns1.example.com=[2001:db8::1],' + \
-                'ns1.example.com=192.0.2.2,ns2.example.com=[2001:db8::2]'
+                    'ns1.example.com=192.0.2.2,ns2.example.com=[2001:db8::2]'
 
         arg1_with_spaces = ' example.com : ns1.example.com = [192.0.2.1]:1234 , ns1.example.com = [2001:db8::1], ' + \
-                'ns1.example.com = [192.0.2.2] , ns2.example.com = [2001:db8::2] '
+                    'ns1.example.com = [192.0.2.2] , ns2.example.com = [2001:db8::2] '
 
-        arg2 = 'example.com:%s' % EXAMPLE_COM_DELEGATION
+        arg2 = f'example.com:{EXAMPLE_COM_DELEGATION}'
 
         delegation_mapping1 = {
                 (dns.name.from_text('example.com'), dns.rdatatype.NS):
@@ -310,7 +310,7 @@ class DNSVizProbeOptionsTestCase(unittest.TestCase):
 
     def test_ds_option(self):
         arg1 = 'example.com:34983 10 1 EC358CFAAEC12266EF5ACFC1FEAF2CAFF083C418,' + \
-            '34983 10 2 608D3B089D79D554A1947BD10BEC0A5B1BDBE67B4E60E34B1432ED00 33F24B49'
+                '34983 10 2 608D3B089D79D554A1947BD10BEC0A5B1BDBE67B4E60E34B1432ED00 33F24B49'
 
         delegation_mapping1 = {
                 (dns.name.from_text('example.com'), dns.rdatatype.DS):
@@ -320,9 +320,9 @@ class DNSVizProbeOptionsTestCase(unittest.TestCase):
                 }
 
         arg1_with_spaces = ' example.com : 34983 10 1 EC358CFAAEC12266EF5ACFC1FEAF2CAFF083C418, ' + \
-            ' 34983 10 2 608D3B089D79D554A1947BD10BEC0A5B1BDBE67B4E60E34B1432ED00 33F24B49 '
+                ' 34983 10 2 608D3B089D79D554A1947BD10BEC0A5B1BDBE67B4E60E34B1432ED00 33F24B49 '
 
-        arg2 = 'example.com:%s' % EXAMPLE_COM_DELEGATION
+        arg2 = f'example.com:{EXAMPLE_COM_DELEGATION}'
 
         delegation_mapping2 = {
                 (dns.name.from_text('example.com'), dns.rdatatype.DS):
@@ -894,7 +894,7 @@ ns1.example 0 IN A 192.0.2.1
         arghelper.build_parser('probe')
         arghelper.parse_args(args)
         arghelper.set_kwargs()
-        self.assertEqual(set([o.otype for o in CustomQueryMixin.edns_options]), set([10]))
+        self.assertEqual({o.otype for o in CustomQueryMixin.edns_options}, {10})
 
         CustomQueryMixin.edns_options = self.custom_query_mixin_edns_options_orig[:]
 
@@ -904,7 +904,7 @@ ns1.example 0 IN A 192.0.2.1
         arghelper.build_parser('probe')
         arghelper.parse_args(args)
         arghelper.set_kwargs()
-        self.assertEqual(set([o.otype for o in CustomQueryMixin.edns_options]), set([3, 8, 10]))
+        self.assertEqual({o.otype for o in CustomQueryMixin.edns_options}, {3, 8, 10})
 
         CustomQueryMixin.edns_options = self.custom_query_mixin_edns_options_orig[:]
 

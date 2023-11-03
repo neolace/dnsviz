@@ -134,9 +134,9 @@ class Resolver:
                         except ValueError:
                             pass
         except IOError as e:
-            raise ResolvConfError('Unable to open %s: %s' % (resolv_conf, str(e)))
+            raise ResolvConfError(f'Unable to open {resolv_conf}: {str(e)}')
         if not servers:
-            raise ResolvConfError('No servers found in %s' % (resolv_conf))
+            raise ResolvConfError(f'No servers found in {resolv_conf}')
         return Resolver(servers, query_cls, **kwargs)
 
     def query(self, qname, rdtype, rdclass=dns.rdataclass.IN, accept_first_response=False, continue_on_servfail=True):
@@ -332,9 +332,7 @@ class FullResolver:
             return False
         if not self.allow_private_query and (RFC_1918_RE.search(server) is not None or LINK_LOCAL_RE.search(server) is not None or UNIQ_LOCAL_RE.search(server) is not None):
             return False
-        if ZERO_SLASH8_RE.search(server) is not None:
-            return False
-        return True
+        return ZERO_SLASH8_RE.search(server) is None
 
     def flush_cache(self):
         with self._cache_lock:
@@ -433,10 +431,7 @@ class FullResolver:
         response, server = self.query(qname, rdtype, rdclass)
         if response.rcode() == dns.rcode.SERVFAIL:
             raise dns.resolver.NoNameservers()
-        if allow_noanswer:
-            answer_cls = DNSAnswerNoAnswerAllowed
-        else:
-            answer_cls = DNSAnswer
+        answer_cls = DNSAnswerNoAnswerAllowed if allow_noanswer else DNSAnswer
         return answer_cls(qname, rdtype, response, server)
 
     def query_multiple_for_answer(self, *query_tuples, **kwargs):
@@ -450,10 +445,10 @@ class FullResolver:
         return answers
 
     def query_multiple(self, *query_tuples, **kwargs):
-        responses = {}
-        for query_tuple in query_tuples:
-            responses[query_tuple] = self.query(query_tuple[0], query_tuple[1], query_tuple[2])
-        return responses
+        return {
+            query_tuple: self.query(query_tuple[0], query_tuple[1], query_tuple[2])
+            for query_tuple in query_tuples
+        }
 
     def _get_answer(self, qname, rdtype, rdclass, max_source):
         # first check cache for answer

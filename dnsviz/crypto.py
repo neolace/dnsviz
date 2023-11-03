@@ -52,24 +52,28 @@ ALG_TYPE_DNSSEC_TEXT = [
 ]
 
 _crypto_sources = {
-        'M2Crypto >= 0.21.1': (set([1,5,7,8,10]), set([1,2,4]), set([1])),
-        'M2Crypto >= 0.24.0': (set([3,6,13,14]), set(), set()),
-        'M2Crypto >= 0.24.0 and either openssl < 1.1.0 or openssl >= 1.1.0 plus the OpenSSL GOST Engine': (set([12]), set([3]), set()),
-        'M2Crypto >= 0.37.0 and openssl >= 1.1.1': (set([15,16]), set(), set()),
+    'M2Crypto >= 0.21.1': ({1, 5, 7, 8, 10}, {1, 2, 4}, {1}),
+    'M2Crypto >= 0.24.0': ({3, 6, 13, 14}, set(), set()),
+    'M2Crypto >= 0.24.0 and either openssl < 1.1.0 or openssl >= 1.1.0 plus the OpenSSL GOST Engine': (
+        {12},
+        {3},
+        set(),
+    ),
+    'M2Crypto >= 0.37.0 and openssl >= 1.1.1': ({15, 16}, set(), set()),
 }
 _logged_modules = set()
 
 _supported_algs = set()
 _supported_digest_algs = set()
-_supported_nsec3_algs = set([1])
+_supported_nsec3_algs = {1}
 try:
     from M2Crypto import EVP, RSA
     from M2Crypto.m2 import hex_to_bn, bn_to_mpi
 except:
     pass
 else:
-    _supported_algs.update(set([1,5,7,8,10]))
-    _supported_digest_algs.update(set([1,2,4]))
+    _supported_algs.update({1, 5, 7, 8, 10})
+    _supported_digest_algs.update({1, 2, 4})
 
 GOST_PREFIX = b'\x30\x63\x30\x1c\x06\x06\x2a\x85\x03\x02\x02\x13\x30\x12\x06\x07\x2a\x85\x03\x02\x02\x23\x01\x06\x07\x2a\x85\x03\x02\x02\x1e\x01\x03\x43\x00\x04\x40'
 GOST_ENGINE_NAME = b'gost'
@@ -457,6 +461,6 @@ def get_digest_for_nsec3(val, salt, alg, iterations):
     if alg == 1:
         hash_func = hashlib.sha1
 
-    for i in range(iterations + 1):
+    for _ in range(iterations + 1):
         val = hash_func(val + salt).digest()
     return val

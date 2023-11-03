@@ -58,7 +58,7 @@ except ImportError:
     else:
         raise
 
-LOCAL_MEDIA_URL = 'file://' + DNSVIZ_SHARE_PATH
+LOCAL_MEDIA_URL = f'file://{DNSVIZ_SHARE_PATH}'
 DNSSEC_TEMPLATE_FILE = os.path.join(DNSVIZ_SHARE_PATH, 'html', 'dnssec-template.html')
 
 logging.basicConfig(level=logging.WARNING, format='%(message)s')
@@ -84,7 +84,9 @@ def finish_graph(G, name_objs, rdtypes, trusted_keys, supported_algs, fmt, filen
             with io.open(DNSSEC_TEMPLATE_FILE, 'r', encoding='utf-8') as fh:
                 template_str = fh.read()
         except IOError as e:
-            logger.error('Error reading template file "%s": %s' % (DNSSEC_TEMPLATE_FILE, e.strerror))
+            logger.error(
+                f'Error reading template file "{DNSSEC_TEMPLATE_FILE}": {e.strerror}'
+            )
             sys.exit(3)
 
         template_str = template_str.replace('LOCAL_MEDIA_URL', LOCAL_MEDIA_URL)
@@ -97,7 +99,7 @@ def finish_graph(G, name_objs, rdtypes, trusted_keys, supported_algs, fmt, filen
         try:
             fh = io.open(filename, 'w', encoding='utf-8').write(template_str)
         except IOError as e:
-            logger.error('%s: "%s"' % (e.strerror, filename))
+            logger.error(f'{e.strerror}: "{filename}"')
             sys.exit(3)
 
     else:
@@ -105,7 +107,7 @@ def finish_graph(G, name_objs, rdtypes, trusted_keys, supported_algs, fmt, filen
             fh = io.open(filename, 'wb').write(G.draw(fmt))
         except IOError as e:
             if e.strerror:
-                logger.error('%s: "%s"' % (e.strerror, filename))
+                logger.error(f'{e.strerror}: "{filename}"')
             else:
                 logger.error(str(e))
             sys.exit(3)
@@ -125,10 +127,14 @@ def test_pygraphviz():
             major = int(major)
             minor = int(re.sub(r'(\d+)[^\d].*', r'\1', minor))
             if (major, minor) < (1,3):
-                logger.error('''pygraphviz version >= 1.3 is required, but version %s is installed.''' % version)
+                logger.error(
+                    f'''pygraphviz version >= 1.3 is required, but version {version} is installed.'''
+                )
                 sys.exit(2)
         except ValueError:
-            logger.error('''pygraphviz version >= 1.3 is required, but version %s is installed.''' % version)
+            logger.error(
+                f'''pygraphviz version >= 1.3 is required, but version {version} is installed.'''
+            )
             sys.exit(2)
     except ImportError:
         logger.error('''pygraphviz is required, but not installed.''')
@@ -257,7 +263,7 @@ class GraphArgHelper:
             try:
                 rdtypes.append(dns.rdatatype.from_text(r.strip()))
             except dns.rdatatype.UnknownRdatatype:
-                raise argparse.ArgumentTypeError('Invalid resource record type: %s' % (r))
+                raise argparse.ArgumentTypeError(f'Invalid resource record type: {r}')
         return rdtypes
 
     @classmethod
@@ -274,7 +280,7 @@ class GraphArgHelper:
             try:
                 ints.append(int(i.strip()))
             except ValueError:
-                raise argparse.ArgumentTypeError('Invalid integer: %s' % (i))
+                raise argparse.ArgumentTypeError(f'Invalid integer: {i}')
         return ints
 
     @classmethod
@@ -282,7 +288,7 @@ class GraphArgHelper:
         try:
             return dns.name.from_text(arg)
         except dns.exception.DNSException:
-            raise argparse.ArgumentTypeError('Invalid domain name: "%s"' % arg)
+            raise argparse.ArgumentTypeError(f'Invalid domain name: "{arg}"')
 
     def check_args(self):
         if self.args.names_file and self.args.domain_name:
@@ -297,14 +303,16 @@ class GraphArgHelper:
         if self.args.output_format is not None:
             self.output_format = self.args.output_format
         elif self.args.output_file is not None and \
-                self.args.output_file.fileno() != sys.stdout.fileno() and \
-                isinstance(self.args.output_file.name, str):
+                    self.args.output_file.fileno() != sys.stdout.fileno() and \
+                    isinstance(self.args.output_file.name, str):
             if '.' in self.args.output_file.name:
                 extension = self.args.output_file.name.split('.')[-1]
                 if extension in self.FORMAT_CHOICES:
                     self.output_format = extension
             if self.output_format is None:
-                raise argparse.ArgumentTypeError('Unable to detect a valid format from output file: %s' % (self.args.output_file.name))
+                raise argparse.ArgumentTypeError(
+                    f'Unable to detect a valid format from output file: {self.args.output_file.name}'
+                )
         else:
             self.output_format = 'dot'
 
@@ -353,8 +361,9 @@ class GraphArgHelper:
             try:
                 self.trusted_keys.extend(get_trusted_keys(tk_str))
             except dns.exception.DNSException:
-                raise argparse.ArgumentTypeError('There was an error parsing the trusted keys file: "%s"' % \
-                        self._arg_mapping)
+                raise argparse.ArgumentTypeError(
+                    f'There was an error parsing the trusted keys file: "{self._arg_mapping}"'
+                )
 
     def update_trusted_key_info(self, latest_analysis_date):
         if self.args.trusted_keys_file is None:
@@ -370,15 +379,21 @@ class GraphArgHelper:
         try:
             self.analysis_structured = json.loads(analysis_str)
         except ValueError:
-            raise AnalysisInputError('There was an error parsing the JSON input: "%s"' % self.args.input_file.name)
+            raise AnalysisInputError(
+                f'There was an error parsing the JSON input: "{self.args.input_file.name}"'
+            )
 
         # check version
         if '_meta._dnsviz.' not in self.analysis_structured or 'version' not in self.analysis_structured['_meta._dnsviz.']:
-            raise AnalysisInputError('No version information in JSON input: "%s"' % self.args.input_file.name)
+            raise AnalysisInputError(
+                f'No version information in JSON input: "{self.args.input_file.name}"'
+            )
         try:
             major_vers, minor_vers = [int(x) for x in str(self.analysis_structured['_meta._dnsviz.']['version']).split('.', 1)]
         except ValueError:
-            raise AnalysisInputError('Version of JSON input is invalid: %s' % self.analysis_structured['_meta._dnsviz.']['version'])
+            raise AnalysisInputError(
+                f"Version of JSON input is invalid: {self.analysis_structured['_meta._dnsviz.']['version']}"
+            )
         # ensure major version is a match and minor version is no greater
         # than the current minor version
         curr_major_vers, curr_minor_vers = [int(x) for x in str(DNS_RAW_VERSION).split('.', 1)]
@@ -412,16 +427,16 @@ class GraphArgHelper:
             try:
                 name = dns.name.from_text(name)
             except UnicodeDecodeError as e:
-                self._logger.error('%s: "%s"' % (e, name))
+                self._logger.error(f'{e}: "{name}"')
             except dns.exception.DNSException:
-                self._logger.error('The domain name was invalid: "%s"' % name)
+                self._logger.error(f'The domain name was invalid: "{name}"')
             else:
                 if name not in self.names:
                     self.names[name] = None
 
 def build_helper(logger, cmd, subcmd):
     arghelper = GraphArgHelper(logger)
-    arghelper.build_parser('%s %s' % (cmd, subcmd))
+    arghelper.build_parser(f'{cmd} {subcmd}')
     return arghelper
 
 def main(argv):
@@ -442,8 +457,7 @@ def main(argv):
         except argparse.ArgumentTypeError as e:
             arghelper.parser.error(str(e))
         except AnalysisInputError as e:
-            s = str(e)
-            if s:
+            if s := str(e):
                 logger.error(s)
             sys.exit(3)
 
@@ -453,7 +467,9 @@ def main(argv):
         for name in arghelper.names:
             name_str = lb2s(name.canonicalize().to_text())
             if name_str not in arghelper.analysis_structured or arghelper.analysis_structured[name_str].get('stub', True):
-                logger.error('The analysis of "%s" was not found in the input.' % lb2s(name.to_text()))
+                logger.error(
+                    f'The analysis of "{lb2s(name.to_text())}" was not found in the input.'
+                )
                 continue
             name_obj = OfflineDomainNameAnalysis.deserialize(name, arghelper.analysis_structured, cache, strict_cookies=arghelper.args.enforce_cookies, allow_private=arghelper.args.allow_private)
             name_objs.append(name_obj)
@@ -475,17 +491,16 @@ def main(argv):
                     # exceptions
                     if name_obj.is_zone() and rdtype in (dns.rdatatype.DNSKEY, dns.rdatatype.DS, dns.rdatatype.DLV):
                         continue
-                else:
-                    # if rdtypes was specified, then only graph rdtypes that
-                    # were specified
-                    if qname != name_obj.name or rdtype not in arghelper.args.rr_types:
-                        continue
+                elif qname != name_obj.name or rdtype not in arghelper.args.rr_types:
+                    continue
                 G.graph_rrset_auth(name_obj, qname, rdtype)
 
             if arghelper.args.rr_types is not None:
                 for rdtype in arghelper.args.rr_types:
                     if (name_obj.name, rdtype) not in name_obj.queries:
-                        logger.error('No query for "%s/%s" was included in the analysis.' % (lb2s(name_obj.name.to_text()), dns.rdatatype.to_text(rdtype)))
+                        logger.error(
+                            f'No query for "{lb2s(name_obj.name.to_text())}/{dns.rdatatype.to_text(rdtype)}" was included in the analysis.'
+                        )
 
             if arghelper.args.derive_filename:
                 if name_obj.name == dns.name.root:
@@ -493,7 +508,16 @@ def main(argv):
                 else:
                     name = lb2s(name_obj.name.canonicalize().to_text()).rstrip('.')
                     name = name.replace(os.sep, '--')
-                finish_graph(G, [name_obj], arghelper.args.rr_types, arghelper.trusted_keys, arghelper.args.algorithms, arghelper.output_format, '%s.%s' % (name, arghelper.output_format), not arghelper.args.redundant_edges)
+                finish_graph(
+                    G,
+                    [name_obj],
+                    arghelper.args.rr_types,
+                    arghelper.trusted_keys,
+                    arghelper.args.algorithms,
+                    arghelper.output_format,
+                    f'{name}.{arghelper.output_format}',
+                    not arghelper.args.redundant_edges,
+                )
                 G = DNSAuthGraph()
 
         if not arghelper.args.derive_filename:

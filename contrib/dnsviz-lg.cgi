@@ -63,10 +63,10 @@ def check_dst(dst):
     if not ALLOW_PRIVATE_QUERY and (RFC_1918_RE.search(dst) is not None or \
             LINK_LOCAL_RE.search(dst) is not None or \
             UNIQ_LOCAL_RE.search(dst) is not None):
-        raise RemoteQueryError('Issuing queries to %s not allowed' % dst)
+        raise RemoteQueryError(f'Issuing queries to {dst} not allowed')
     if not ALLOW_LOOPBACK_QUERY and (LOOPBACK_IPV4_RE.search(dst) is not None or \
             dst == LOOPBACK_IPV6):
-        raise RemoteQueryError('Issuing queries to %s not allowed' % dst)
+        raise RemoteQueryError(f'Issuing queries to {dst} not allowed')
 
 def get_qname(msg):
     n = ''
@@ -78,11 +78,7 @@ def get_qname(msg):
             raise InvalidName()
 
         # python3/python2 dual compatibility
-        if isinstance(msg, str):
-            l = struct.unpack(b'!B', msg[index])[0]
-        else:
-            l = msg[index]
-
+        l = struct.unpack(b'!B', msg[index])[0] if isinstance(msg, str) else msg[index]
         # no compression allowed in question
         if l & 0xc0:
             raise InvalidName()
@@ -150,7 +146,7 @@ def check_qname(msg):
             return
 
         if subdomain in blacklist:
-            raise RemoteQueryError('Querying %s not allowed' % qname)
+            raise RemoteQueryError(f'Querying {qname} not allowed')
 
         try:
             nextdot = subdomain.index('.')
@@ -164,7 +160,9 @@ def main():
         if not os.environ.get('REQUEST_METHOD', None):
             os.environ['REQUEST_METHOD'] = 'POST'
         if os.environ['REQUEST_METHOD'] != 'POST':
-            raise RemoteQueryError('Request method %s not supported' % os.environ['REQUEST_METHOD'])
+            raise RemoteQueryError(
+                f"Request method {os.environ['REQUEST_METHOD']} not supported"
+            )
         form = cgi.FieldStorage()
 
         response_queue = queue.Queue()
@@ -180,14 +178,18 @@ def main():
             try:
                 content = json.loads(form['content'].value)
             except ValueError:
-                raise RemoteQueryError('JSON decoding of HTTP request failed: %s' % form['content'])
+                raise RemoteQueryError(
+                    f"JSON decoding of HTTP request failed: {form['content']}"
+                )
 
             if 'version' not in content:
                 raise RemoteQueryError('No version information in HTTP request.')
             try:
                 major_vers, minor_vers = [int(x) for x in str(content['version']).split('.', 1)]
             except ValueError:
-                raise RemoteQueryError('Version of JSON input in HTTP request is invalid: %s' % content['version'])
+                raise RemoteQueryError(
+                    f"Version of JSON input in HTTP request is invalid: {content['version']}"
+                )
 
             # ensure major version is a match and minor version is no greater
             # than the current minor version
@@ -205,7 +207,7 @@ def main():
                 try:
                     qtm = transport.DNSQueryTransportMeta.deserialize_request(qtm_serialized)
                 except transport.TransportMetaDeserializationError as e:
-                    raise RemoteQueryError('Error deserializing request information: %s' % e)
+                    raise RemoteQueryError(f'Error deserializing request information: {e}')
 
                 check_dst(qtm.dst)
                 check_qname(qtm.req)

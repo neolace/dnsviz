@@ -158,25 +158,18 @@ def _init_subprocess(use_full):
 def _analyze(args):
     (cls, name, rdclass, dlv_domain, try_ipv4, try_ipv6, client_ipv4, client_ipv6, query_class_mixin, ceiling, edns_diagnostics, \
             stop_at_explicit, extra_rdtypes, explicit_only, cache, cache_level, cache_lock) = args
-    if ceiling is not None and name.is_subdomain(ceiling):
-        c = ceiling
-    else:
-        c = name
+    c = ceiling if ceiling is not None and name.is_subdomain(ceiling) else name
     try:
         a = cls(name, rdclass=rdclass, dlv_domain=dlv_domain, try_ipv4=try_ipv4, try_ipv6=try_ipv6, client_ipv4=client_ipv4, client_ipv6=client_ipv6, query_class_mixin=query_class_mixin, ceiling=c, edns_diagnostics=edns_diagnostics, explicit_delegations=explicit_delegations, stop_at_explicit=stop_at_explicit, odd_ports=odd_ports, extra_rdtypes=extra_rdtypes, explicit_only=explicit_only, analysis_cache=cache, cache_level=cache_level, analysis_cache_lock=cache_lock, transport_manager=tm, th_factories=th_factories, resolver=resolver)
         return a.analyze()
-    # re-raise a KeyboardInterrupt, as this means we've been interrupted
     except KeyboardInterrupt:
         raise
-    # report exceptions related to network connectivity
     except (NetworkConnectivityException, transport.RemoteQueryTransportError) as e:
-        logger.error('Error analyzing %s: %s' % (fmt.humanize_name(name), e))
-    # don't report EOFError, as that is what is raised if there is a
-    # KeyboardInterrupt in ParallelAnalyst
+        logger.error(f'Error analyzing {fmt.humanize_name(name)}: {e}')
     except EOFError:
         pass
     except:
-        logger.exception('Error analyzing %s' % fmt.humanize_name(name))
+        logger.exception(f'Error analyzing {fmt.humanize_name(name)}')
         return None
 
 class BulkAnalyst(object):
@@ -308,12 +301,13 @@ class ParallelAnalystMixin(object):
         name_objs = []
         pool = multiprocessing.Pool(self.processes, _init_subprocess, (self.use_full_resolver,))
         try:
-            for args in self._name_to_args_iter(names):
-                results.append(pool.apply_async(_analyze, (args,)))
+            results.extend(
+                pool.apply_async(_analyze, (args,))
+                for args in self._name_to_args_iter(names)
+            )
             # loop instead of just joining, so we can check for interrupt at
             # main process
-            for result in results:
-                name_objs.append(result.get())
+            name_objs.extend(result.get() for result in results)
         except KeyboardInterrupt:
             pool.terminate()
             raise
@@ -416,7 +410,7 @@ $TTL 600
 
     def serve(self):
         self.working_dir = tempfile.mkdtemp(prefix='dnsviz')
-        env = { 'PATH': '%s:/sbin:/usr/sbin:/usr/local/sbin' % (os.environ.get('PATH', '')) }
+        env = {'PATH': f"{os.environ.get('PATH', '')}:/sbin:/usr/sbin:/usr/local/sbin"}
 
         args = { 'dir': self.working_dir, 'port': self.port,
                 'zone_name': lb2s(self.domain.to_text()),
@@ -432,7 +426,9 @@ $TTL 600
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
         except OSError as e:
             self._cleanup_process()
-            raise MissingExecutablesError('The options used require %s.  Please ensure that it is installed and in PATH (%s).' % (self.NAMED_CHECKCONF, e))
+            raise MissingExecutablesError(
+                f'The options used require {self.NAMED_CHECKCONF}.  Please ensure that it is installed and in PATH ({e}).'
+            )
 
         (stdout, stderr) = p.communicate()
         if p.returncode != 0:
@@ -448,7 +444,9 @@ $TTL 600
                 p = subprocess.Popen(named_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
             except OSError as e:
                 self._cleanup_process()
-                raise MissingExecutablesError('The options used require %s.  Please ensure that it is installed and in PATH (%s).' % (self.NAMED, e))
+                raise MissingExecutablesError(
+                    f'The options used require {self.NAMED}.  Please ensure that it is installed and in PATH ({e}).'
+                )
 
             (stdout, stderr) = p.communicate()
             if p.returncode == 0:
@@ -475,7 +473,9 @@ $TTL 600
                 self.pid = int(fh.read())
         except (IOError, ValueError) as e:
             self._cleanup_process()
-            raise ZoneFileServiceError('There was an problem detecting the process ID for %s: %s' % (self.NAMED, e))
+            raise ZoneFileServiceError(
+                f'There was an problem detecting the process ID for {self.NAMED}: {e}'
+            )
 
         atexit.register(self._cleanup_process)
 
@@ -497,11 +497,14 @@ class NameServerMappingsForDomain(object):
     _full_resolver = None
 
     def __init__(self, domain, stop_at):
-        if not (self._allow_file is not None and \
-                self._allow_name_only is not None and \
-                self._allow_addr_only is not None and \
-                self._allow_stop_at is not None and \
-                (not self._allow_file or self._handle_file_arg is not None)):
+        if (
+            self._allow_file is None
+            or self._allow_name_only is None
+            or self._allow_addr_only is None
+            or self._allow_stop_at is None
+            or self._allow_file
+            and self._handle_file_arg is None
+        ):
             raise NotImplemented
 
         if stop_at and not self._allow_stop_at:
@@ -586,15 +589,10 @@ class NameServerMappingsForDomain(object):
                     if port is not None and port != self.DEFAULT_PORT:
                         self.odd_ports[(self.domain, IPAddr(rdata.address))] = port
 
-            # negative responses
-            elif isinstance(a, (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)):
-                pass
-            # error responses
-            elif isinstance(a, (dns.exception.Timeout, dns.resolver.NoNameservers)):
-                pass
-
         if not found_answer:
-            raise argparse.ArgumentTypeError('"%s" could not be resolved to an address.  Please specify an address or use a name that resolves properly.' % fmt.humanize_name(name))
+            raise argparse.ArgumentTypeError(
+                f'"{fmt.humanize_name(name)}" could not be resolved to an address.  Please specify an address or use a name that resolves properly.'
+            )
 
     def _handle_name_with_addr(self, name, addr, port):
         if addr.version == 6:
@@ -642,7 +640,7 @@ class NameServerMappingsForDomain(object):
         try:
             name = dns.name.from_text(name)
         except dns.exception.DNSException:
-            raise argparse.ArgumentTypeError('The domain name was invalid: "%s"' % name)
+            raise argparse.ArgumentTypeError(f'The domain name was invalid: "{name}"')
         return name
 
     def _format_addr(self, addr):
@@ -651,7 +649,7 @@ class NameServerMappingsForDomain(object):
             try:
                 addr = IPAddr(addr)
             except ValueError:
-                raise argparse.ArgumentTypeError('The IP address was invalid: "%s"' % addr)
+                raise argparse.ArgumentTypeError(f'The IP address was invalid: "{addr}"')
 
             if addr.version == 6 and num_sub < 1:
                 raise argparse.ArgumentTypeError('Brackets are required around IPv6 addresses.')
@@ -701,11 +699,7 @@ class NameServerMappingsForDomain(object):
             name = name.strip()
             addr = addr.strip()
 
-            if port is None:
-                addr_orig = addr
-            else:
-                addr_orig = '%s:%d' % (addr, port)
-
+            addr_orig = addr if port is None else '%s:%d' % (addr, port)
             try:
                 IPAddr(self.BRACKETS_RE.sub(r'\1', addr))
             except ValueError:
@@ -724,10 +718,6 @@ class NameServerMappingsForDomain(object):
                     #     address valid, and cancel the port.
                     addr = addr_orig
                     port = None
-            else:
-                # b4. Value was a valid address, so no need to do anything
-                pass
-
         return name, addr, port
 
     def _set_filename(self, filename):
@@ -740,17 +730,21 @@ class NameServerMappingsForDomain(object):
             with io.open(filename, 'r', encoding='utf-8') as fh:
                 file_contents = fh.read()
         except IOError as e:
-            raise argparse.ArgumentTypeError('%s: "%s"' % (e.strerror, filename))
+            raise argparse.ArgumentTypeError(f'{e.strerror}: "{filename}"')
 
         try:
             m = dns.message.from_text(str(';ANSWER\n' + file_contents))
         except dns.exception.DNSException as e:
-            raise argparse.ArgumentTypeError('Error reading delegation records from %s: "%s"' % (filename, e))
+            raise argparse.ArgumentTypeError(
+                f'Error reading delegation records from {filename}: "{e}"'
+            )
 
         try:
             ns_rrset = m.find_rrset(m.answer, self.domain, dns.rdataclass.IN, dns.rdatatype.NS)
         except KeyError:
-            raise argparse.ArgumentTypeError('No NS records for %s found in %s' % (lb2s(self.domain.canonicalize().to_text()), filename))
+            raise argparse.ArgumentTypeError(
+                f'No NS records for {lb2s(self.domain.canonicalize().to_text())} found in {filename}'
+            )
 
         for rdata in ns_rrset:
             a_rrsets = [r for r in m.answer if r.name == rdata.target and r.rdtype in (dns.rdatatype.A, dns.rdatatype.AAAA)]
@@ -759,7 +753,7 @@ class NameServerMappingsForDomain(object):
             else:
                 for a_rrset in a_rrsets:
                     for a_rdata in a_rrset:
-                        name_addr = '%s=[%s]' % (lb2s(rdata.target.canonicalize().to_text()), a_rdata.address)
+                        name_addr = f'{lb2s(rdata.target.canonicalize().to_text())}=[{a_rdata.address}]'
             self._handle_name_addr_mapping(name_addr)
 
 class DelegationNameServerMappingsForDomain(NameServerMappingsForDomain):
@@ -805,17 +799,21 @@ class DSForDomain:
             with io.open(filename, 'r', encoding='utf-8') as fh:
                 file_contents = fh.read()
         except IOError as e:
-            raise argparse.ArgumentTypeError('%s: "%s"' % (e.strerror, filename))
+            raise argparse.ArgumentTypeError(f'{e.strerror}: "{filename}"')
 
         try:
             m = dns.message.from_text(str(';ANSWER\n' + file_contents))
         except dns.exception.DNSException as e:
-            raise argparse.ArgumentTypeError('Error reading DS records from %s: "%s"' % (filename, e))
+            raise argparse.ArgumentTypeError(
+                f'Error reading DS records from {filename}: "{e}"'
+            )
 
         try:
             ds_rrset = m.find_rrset(m.answer, self.domain, dns.rdataclass.IN, dns.rdatatype.DS)
         except KeyError:
-            raise argparse.ArgumentTypeError('No DS records for %s found in %s' % (lb2s(self.domain.canonicalize().to_text()), filename))
+            raise argparse.ArgumentTypeError(
+                f'No DS records for {lb2s(self.domain.canonicalize().to_text())} found in {filename}'
+            )
 
         for rdata in ds_rrset:
             self.delegation_mapping[(self.domain, dns.rdatatype.DS)].add(rdata)
@@ -874,7 +872,7 @@ class DomainListArgHelper:
             try:
                 domain = dns.name.from_text(domain)
             except dns.exception.DNSException:
-                raise argparse.ArgumentTypeError('The domain name was invalid: "%s"' % domain)
+                raise argparse.ArgumentTypeError(f'The domain name was invalid: "{domain}"')
 
         if list_arg is not None:
             list_arg = list_arg.strip()
@@ -1058,7 +1056,7 @@ class ArgHelper:
         try:
             val = int(arg)
         except ValueError:
-            msg = "The argument must be a positive integer: %s" % val
+            msg = f"The argument must be a positive integer: {val}"
             raise argparse.ArgumentTypeError(msg)
         else:
             if val < 1:
@@ -1071,17 +1069,16 @@ class ArgHelper:
         try:
             addr = IPAddr(cls.BRACKETS_RE.sub(r'\1', arg))
         except ValueError:
-            raise argparse.ArgumentTypeError('The IP address was invalid: "%s"' % arg)
-        if addr.version == 4:
-            fam = socket.AF_INET
-        else:
-            fam = socket.AF_INET6
+            raise argparse.ArgumentTypeError(f'The IP address was invalid: "{arg}"')
+        fam = socket.AF_INET if addr.version == 4 else socket.AF_INET6
         try:
             s = socket.socket(fam)
             s.bind((addr, 0))
         except socket.error as e:
             if e.errno == errno.EADDRNOTAVAIL:
-                raise argparse.ArgumentTypeError('Cannot bind to specified IP address: "%s"' % addr)
+                raise argparse.ArgumentTypeError(
+                    f'Cannot bind to specified IP address: "{addr}"'
+                )
         finally:
             s.close()
         return addr
@@ -1090,7 +1087,7 @@ class ArgHelper:
     def valid_url(cls, arg):
         url = urlparse.urlparse(arg)
         if url.scheme not in ('http', 'https', 'ws', 'ssh'):
-            raise argparse.ArgumentTypeError('Unsupported URL scheme: "%s"' % url.scheme)
+            raise argparse.ArgumentTypeError(f'Unsupported URL scheme: "{url.scheme}"')
 
         # check that version is >= 2.7.9 if HTTPS is requested
         if url.scheme == 'https':
@@ -1114,7 +1111,7 @@ class ArgHelper:
             try:
                 rdtypes.append(dns.rdatatype.from_text(r.strip()))
             except dns.rdatatype.UnknownRdatatype:
-                raise argparse.ArgumentTypeError('Invalid resource record type: %s' % (r))
+                raise argparse.ArgumentTypeError(f'Invalid resource record type: {r}')
         return rdtypes
 
     @classmethod
@@ -1125,7 +1122,7 @@ class ArgHelper:
         try:
             return dns.name.from_text(arg)
         except dns.exception.DNSException:
-            raise argparse.ArgumentTypeError('Invalid domain name: "%s"' % arg)
+            raise argparse.ArgumentTypeError(f'Invalid domain name: "{arg}"')
 
     @classmethod
     def nsid_option(cls):
@@ -1142,7 +1139,7 @@ class ArgHelper:
         try:
             addr = IPAddr(addr)
         except ValueError:
-            raise argparse.ArgumentTypeError('The IP address was invalid: "%s"' % addr)
+            raise argparse.ArgumentTypeError(f'The IP address was invalid: "{addr}"')
 
         if addr.version == 4:
             addrlen = 4
@@ -1157,7 +1154,9 @@ class ArgHelper:
             try:
                 prefix_len = int(prefix_len)
             except ValueError:
-                raise argparse.ArgumentTypeError('The prefix length was invalid: "%s"' % prefix_len)
+                raise argparse.ArgumentTypeError(
+                    f'The prefix length was invalid: "{prefix_len}"'
+                )
 
             if prefix_len < 0 or prefix_len > (addrlen << 3):
                 raise argparse.ArgumentTypeError('The prefix length was invalid: "%d"' % prefix_len)
@@ -1187,7 +1186,9 @@ class ArgHelper:
         try:
             cookie = binascii.unhexlify(arg)
         except (binascii.Error, TypeError):
-            raise argparse.ArgumentTypeError('The DNS cookie provided was not valid hexadecimal: "%s"' % arg)
+            raise argparse.ArgumentTypeError(
+                f'The DNS cookie provided was not valid hexadecimal: "{arg}"'
+            )
 
         if len(cookie) != 8:
             raise argparse.ArgumentTypeError('The DNS client cookie provided had a length of %d, but only a length of %d is valid .' % (len(cookie), 8))
@@ -1238,7 +1239,11 @@ class ArgHelper:
         for arg in self.args.ds + self.args.delegation_information:
             zone_name = arg.domain.parent()
             if (zone_name, dns.rdatatype.NS) in self.explicit_delegations:
-                raise argparse.ArgumentTypeError('Cannot use "' + lb2s(zone_name.to_text()) + '" with %(authoritative_servers)s if a child zone is specified with %(delegation_information)s' % self._arg_mapping)
+                raise argparse.ArgumentTypeError(
+                    f'Cannot use "{lb2s(zone_name.to_text())}'
+                    + '" with %(authoritative_servers)s if a child zone is specified with %(delegation_information)s'
+                    % self._arg_mapping
+                )
             if zone_name not in delegation_info_by_zone:
                 delegation_info_by_zone[zone_name] = {}
             for name, rdtype in arg.delegation_mapping:
@@ -1258,24 +1263,22 @@ class ArgHelper:
             self.stop_at[zone_name] = True
 
     def populate_recursive_servers(self):
-        if not self.args.authoritative_analysis and not self.args.recursive_servers:
-            try:
-                resolver = Resolver.from_file(RESOLV_CONF, StandardRecursiveQueryCD, transport_manager=tm)
-            except ResolvConfError:
-                raise argparse.ArgumentTypeError('If servers are not specified with the %s option, then %s must have valid nameserver entries.\n' % \
+        if self.args.authoritative_analysis or self.args.recursive_servers:
+            return
+        try:
+            resolver = Resolver.from_file(RESOLV_CONF, StandardRecursiveQueryCD, transport_manager=tm)
+        except ResolvConfError:
+            raise argparse.ArgumentTypeError('If servers are not specified with the %s option, then %s must have valid nameserver entries.\n' % \
                         (self._arg_mapping['recursive_servers'], RESOLV_CONF))
-            if (WILDCARD_EXPLICIT_DELEGATION, dns.rdatatype.NS) not in self.explicit_delegations:
-                self.explicit_delegations[(WILDCARD_EXPLICIT_DELEGATION, dns.rdatatype.NS)] = dns.rrset.RRset(WILDCARD_EXPLICIT_DELEGATION, dns.rdataclass.IN, dns.rdatatype.NS)
-            for i, server in enumerate(resolver._servers):
-                if IPAddr(server).version == 6:
-                    rdtype = dns.rdatatype.AAAA
-                else:
-                    rdtype = dns.rdatatype.A
-                name = dns.name.from_text('ns%d' % i)
-                self.explicit_delegations[(WILDCARD_EXPLICIT_DELEGATION, dns.rdatatype.NS)].add(dns.rdtypes.ANY.NS.NS(dns.rdataclass.IN, dns.rdatatype.NS, name))
-                if (name, rdtype) not in self.explicit_delegations:
-                    self.explicit_delegations[(name, rdtype)] = dns.rrset.RRset(name, dns.rdataclass.IN, rdtype)
-                self.explicit_delegations[(name, rdtype)].add(dns.rdata.from_text(dns.rdataclass.IN, rdtype, server))
+        if (WILDCARD_EXPLICIT_DELEGATION, dns.rdatatype.NS) not in self.explicit_delegations:
+            self.explicit_delegations[(WILDCARD_EXPLICIT_DELEGATION, dns.rdatatype.NS)] = dns.rrset.RRset(WILDCARD_EXPLICIT_DELEGATION, dns.rdataclass.IN, dns.rdatatype.NS)
+        for i, server in enumerate(resolver._servers):
+            rdtype = dns.rdatatype.AAAA if IPAddr(server).version == 6 else dns.rdatatype.A
+            name = dns.name.from_text('ns%d' % i)
+            self.explicit_delegations[(WILDCARD_EXPLICIT_DELEGATION, dns.rdatatype.NS)].add(dns.rdtypes.ANY.NS.NS(dns.rdataclass.IN, dns.rdatatype.NS, name))
+            if (name, rdtype) not in self.explicit_delegations:
+                self.explicit_delegations[(name, rdtype)] = dns.rrset.RRset(name, dns.rdataclass.IN, rdtype)
+            self.explicit_delegations[(name, rdtype)].add(dns.rdata.from_text(dns.rdataclass.IN, rdtype, server))
 
     def check_args(self):
         if not self.args.names_file and not self.args.domain_name and not self.args.input_file:
@@ -1305,25 +1308,18 @@ class ArgHelper:
         else:
             self.ceiling = dns.name.root
 
-        if self.args.rr_types is not None:
-            self.explicit_only = True
-        else:
-            self.explicit_only = False
-
+        self.explicit_only = self.args.rr_types is not None
         # if both are specified or neither is specified, then they're both tried
         if (self.args.ipv4 and self.args.ipv6) or \
-                (not self.args.ipv4 and not self.args.ipv6):
+                    (not self.args.ipv4 and not self.args.ipv6):
             self.try_ipv4 = True
             self.try_ipv6 = True
-        # if one or the other is specified, then only the one specified is
-        # tried
-        else:
-            if self.args.ipv4:
-                self.try_ipv4 = True
-                self.try_ipv6 = False
-            else: # self.args.ipv6
-                self.try_ipv4 = False
-                self.try_ipv6 = True
+        elif self.args.ipv4:
+            self.try_ipv4 = True
+            self.try_ipv6 = False
+        else: # self.args.ipv6
+            self.try_ipv4 = False
+            self.try_ipv6 = True
 
         for ip in self.args.source_ip:
             if ip.version == 4:
@@ -1420,15 +1416,21 @@ class ArgHelper:
         try:
             self.analysis_structured = json.loads(analysis_str)
         except ValueError:
-            raise AnalysisInputError('There was an error parsing the JSON input: "%s"' % self.args.input_file.name)
+            raise AnalysisInputError(
+                f'There was an error parsing the JSON input: "{self.args.input_file.name}"'
+            )
 
         # check version
         if '_meta._dnsviz.' not in self.analysis_structured or 'version' not in self.analysis_structured['_meta._dnsviz.']:
-            raise AnalysisInputError('No version information in JSON input: "%s"' % self.args.input_file.name)
+            raise AnalysisInputError(
+                f'No version information in JSON input: "{self.args.input_file.name}"'
+            )
         try:
             major_vers, minor_vers = [int(x) for x in str(self.analysis_structured['_meta._dnsviz.']['version']).split('.', 1)]
         except ValueError:
-            raise AnalysisInputError('Version of JSON input is invalid: %s' % self.analysis_structured['_meta._dnsviz.']['version'])
+            raise AnalysisInputError(
+                f"Version of JSON input is invalid: {self.analysis_structured['_meta._dnsviz.']['version']}"
+            )
         # ensure major version is a match and minor version is no greater
         # than the current minor version
         curr_major_vers, curr_minor_vers = [int(x) for x in str(DNS_RAW_VERSION).split('.', 1)]
@@ -1462,9 +1464,9 @@ class ArgHelper:
             try:
                 name = dns.name.from_text(name)
             except UnicodeDecodeError as e:
-                self._logger.error('%s: "%s"' % (e, name))
+                self._logger.error(f'{e}: "{name}"')
             except dns.exception.DNSException:
-                self._logger.error('The domain name was invalid: "%s"' % name)
+                self._logger.error(f'The domain name was invalid: "{name}"')
             else:
                 if name not in self.names:
                     self.names[name] = None
@@ -1475,7 +1477,7 @@ class ArgHelper:
 
 def build_helper(logger, cmd, subcmd):
     arghelper = ArgHelper(logger)
-    arghelper.build_parser('%s %s' % (cmd, subcmd))
+    arghelper.build_parser(f'{cmd} {subcmd}')
     return arghelper
 
 def main(argv):
@@ -1501,13 +1503,11 @@ def main(argv):
         except argparse.ArgumentTypeError as e:
             arghelper.parser.error(str(e))
         except (ZoneFileServiceError, MissingExecutablesError) as e:
-            s = str(e)
-            if s:
+            if s := str(e):
                 logger.error(s)
             sys.exit(1)
         except AnalysisInputError as e:
-            s = str(e)
-            if s:
+            if s := str(e):
                 logger.error(s)
             sys.exit(3)
 
@@ -1516,15 +1516,11 @@ def main(argv):
         odd_ports = arghelper.odd_ports
 
         if arghelper.args.authoritative_analysis:
-            if arghelper.args.threads > 1:
-                cls = ParallelAnalyst
-            else:
-                cls = BulkAnalyst
+            cls = ParallelAnalyst if arghelper.args.threads > 1 else BulkAnalyst
+        elif arghelper.args.threads > 1:
+            cls = RecursiveParallelAnalyst
         else:
-            if arghelper.args.threads > 1:
-                cls = RecursiveParallelAnalyst
-            else:
-                cls = RecursiveBulkAnalyst
+            cls = RecursiveBulkAnalyst
 
         if arghelper.args.pretty_output:
             kwargs = { 'indent': 4, 'separators': (',', ': ') }
@@ -1541,7 +1537,9 @@ def main(argv):
             cache = {}
             for name in arghelper.names:
                 if name.canonicalize().to_text() not in arghelper.analysis_structured:
-                    logger.error('The domain name was not found in the analysis input: "%s"' % name.to_text())
+                    logger.error(
+                        f'The domain name was not found in the analysis input: "{name.to_text()}"'
+                    )
                     continue
                 name_objs.append(OnlineDomainNameAnalysis.deserialize(name, arghelper.analysis_structured, cache))
         else:
@@ -1571,7 +1569,7 @@ def main(argv):
         try:
             arghelper.args.output_file.write(json.dumps(d, ensure_ascii=False, **kwargs).encode('utf-8'))
         except IOError as e:
-            logger.error('Error writing analysis: %s' % e)
+            logger.error(f'Error writing analysis: {e}')
             sys.exit(3)
 
     except KeyboardInterrupt:

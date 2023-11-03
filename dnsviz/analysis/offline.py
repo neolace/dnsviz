@@ -84,7 +84,7 @@ class AggregateResponseInfo(object):
         self.response_info_list = []
 
     def __repr__(self):
-        return '<%s %s/%s>' % (self.__class__.__name__, self.qname, dns.rdatatype.to_text(self.rdtype))
+        return f'<{self.__class__.__name__} {self.qname}/{dns.rdatatype.to_text(self.rdtype)}>'
 
     def add_response_info(self, response_info, cname_info):
         self.response_info_list.append((response_info, cname_info))
@@ -208,7 +208,10 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
             return
         for dnskey_info in self.queries[(self.name, dns.rdatatype.DNSKEY)].answer_info:
             # there are CNAMEs that show up here...
-            if not (dnskey_info.rrset.name == self.name and dnskey_info.rrset.rdtype == dns.rdatatype.DNSKEY):
+            if (
+                dnskey_info.rrset.name != self.name
+                or dnskey_info.rrset.rdtype != dns.rdatatype.DNSKEY
+            ):
                 continue
             dnskey_set = set()
             for dnskey_rdata in dnskey_info.rrset:
@@ -231,8 +234,9 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
         return list(self._dnskeys.values())
 
     def potential_trusted_keys(self):
-        active_ksks = self.ksks.difference(self.zsks).difference(self.revoked_keys)
-        if active_ksks:
+        if active_ksks := self.ksks.difference(self.zsks).difference(
+            self.revoked_keys
+        ):
             return active_ksks
         return self.ksks.difference(self.revoked_keys)
 
@@ -264,15 +268,16 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
             return None
 
         query = self.queries[(name, rdtype)]
-        name_to_info_mapping = {}
         rrset_to_cname_mapping = {}
 
-        name_to_info_mapping[name] = []
-
+        name_to_info_mapping = {name: []}
         for rrset_info in query.answer_info:
 
             # only do qname, unless analysis type is recursive
-            if not (rrset_info.rrset.name == name or self.analysis_type == ANALYSIS_TYPE_RECURSIVE):
+            if (
+                rrset_info.rrset.name != name
+                and self.analysis_type != ANALYSIS_TYPE_RECURSIVE
+            ):
                 continue
 
             # if this is a CNAME record, create an info-to-target mapping
@@ -286,7 +291,10 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
 
         for neg_response_info in query.nxdomain_info + query.nodata_info:
             # only do qname, unless analysis type is recursive
-            if not (neg_response_info.qname == name or self.analysis_type == ANALYSIS_TYPE_RECURSIVE):
+            if (
+                neg_response_info.qname != name
+                and self.analysis_type != ANALYSIS_TYPE_RECURSIVE
+            ):
                 continue
 
             # make sure this query was made to a server designated as
@@ -294,7 +302,9 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
             z_obj = self.zone
             if self.is_zone() and neg_response_info.rdtype == dns.rdatatype.DS:
                 z_obj = self.zone.parent
-            if not set([s for (s,c) in neg_response_info.servers_clients]).intersection(z_obj.get_auth_or_designated_servers()):
+            if not {
+                s for (s, c) in neg_response_info.servers_clients
+            }.intersection(z_obj.get_auth_or_designated_servers()):
                 continue
 
             if neg_response_info.qname not in name_to_info_mapping:
@@ -342,25 +352,23 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
                 # the proof as the overall status.
                 if nsec_status.validation_status != Status.NSEC_STATUS_VALID:
                     status = Status.nsec_status_mapping[nsec_status.validation_status]
-                # else (the NSEC proof is valid)
-                else:
-                    # if there is a component status, then set the overall
-                    # status to the authentication status of collective records
-                    # comprising the proof (the proof is only as good as it is
-                    # authenticated).
-                    if self.response_component_status is not None:
-                        status = Status.rrset_status_mapping[self.response_component_status[nsec_status.nsec_set_info]]
-                    # otherwise, set the overall status to insecure
-                    else:
-                        status = Status.rrset_status_mapping[Status.RRSET_STATUS_INSECURE]
+                elif self.response_component_status is None:
+                    status = Status.rrset_status_mapping[Status.RRSET_STATUS_INSECURE]
 
+                else:
+                    status = Status.rrset_status_mapping[self.response_component_status[nsec_status.nsec_set_info]]
                 warnings = [w.terse_description for w in nsec_status.warnings]
                 errors = [e.terse_description for e in nsec_status.errors]
 
-                children = []
-                for nsec_rrset_info in nsec_status.nsec_set_info.rrsets.values():
-                    children.append(self._serialize_response_component_simple(nsec_rrset_info.rrset.rdtype, response_info, nsec_rrset_info, True))
-
+                children = [
+                    self._serialize_response_component_simple(
+                        nsec_rrset_info.rrset.rdtype,
+                        response_info,
+                        nsec_rrset_info,
+                        True,
+                    )
+                    for nsec_rrset_info in nsec_status.nsec_set_info.rrsets.values()
+                ]
                 nsec_tup.append(('PROOF', status, [], [], [(Status.nsec_status_mapping[nsec_status.validation_status], warnings, errors, '')], children))
 
         return nsec_tup
@@ -368,11 +376,9 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
     def _serialize_rrsig_simple(self, name_obj, rrset_info):
         rrsig_tup = []
         if name_obj.rrsig_status[rrset_info]:
-            rrsigs = list(name_obj.rrsig_status[rrset_info].keys())
-            rrsigs.sort()
+            rrsigs = sorted(name_obj.rrsig_status[rrset_info].keys())
             for rrsig in rrsigs:
-                dnskeys = list(name_obj.rrsig_status[rrset_info][rrsig].keys())
-                dnskeys.sort()
+                dnskeys = sorted(name_obj.rrsig_status[rrset_info][rrsig].keys())
                 for dnskey in dnskeys:
                     rrsig_status = name_obj.rrsig_status[rrset_info][rrsig][dnskey]
 
@@ -384,42 +390,55 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
                     # the overall status
                     if rrsig_status.validation_status != Status.RRSIG_STATUS_VALID:
                         status = Status.rrsig_status_mapping[rrsig_status.validation_status]
-                    # else (the status of the RRSIG is valid)
-                    else:
-                        # if there is a component status, then set the overall
-                        # status to that of the status of the DNSKEY (an RRSIG
-                        # is only as authentic as the DNSKEY that signs it)
-                        if self.response_component_status is not None:
-                            status = Status.rrset_status_mapping[self.response_component_status[dnskey]]
-                        # otherwise, set the overall status to insecure
-                        else:
-                            status = Status.rrset_status_mapping[Status.RRSET_STATUS_INSECURE]
+                    elif self.response_component_status is None:
+                        status = Status.rrset_status_mapping[Status.RRSET_STATUS_INSECURE]
 
+                    else:
+                        status = Status.rrset_status_mapping[self.response_component_status[dnskey]]
                     warnings = [w.terse_description for w in rrsig_status.warnings]
                     errors = [e.terse_description for e in rrsig_status.errors]
-                    rrsig_tup.append(('RRSIG', status, [], [], [(Status.rrsig_status_mapping[rrsig_status.validation_status], warnings, errors, '%s/%s/%s (%s - %s)' % \
-                            (fmt.humanize_name(rrsig.signer), rrsig.algorithm, rrsig.key_tag, fmt.timestamp_to_str(rrsig.inception)[:10], fmt.timestamp_to_str(rrsig.expiration)[:10]))], []))
+                    rrsig_tup.append(
+                        (
+                            'RRSIG',
+                            status,
+                            [],
+                            [],
+                            [
+                                (
+                                    Status.rrsig_status_mapping[
+                                        rrsig_status.validation_status
+                                    ],
+                                    warnings,
+                                    errors,
+                                    f'{fmt.humanize_name(rrsig.signer)}/{rrsig.algorithm}/{rrsig.key_tag} ({fmt.timestamp_to_str(rrsig.inception)[:10]} - {fmt.timestamp_to_str(rrsig.expiration)[:10]})',
+                                )
+                            ],
+                            [],
+                        )
+                    )
         return rrsig_tup
 
     def _serialize_response_component_simple(self, rdtype, response_info, info, show_neg_response, dname_status=None):
         rdata = []
         if isinstance(info, Errors.DomainNameAnalysisError):
             query = response_info.name_obj.queries[(response_info.qname, response_info.rdtype)]
-            if info in response_info.name_obj.response_warnings[query]:
-                status = 'WARNING'
-            else:
-                status = 'ERROR'
+            status = (
+                'WARNING'
+                if info in response_info.name_obj.response_warnings[query]
+                else 'ERROR'
+            )
+        elif self.response_component_status is not None:
+            status = Status.rrset_status_mapping[self.response_component_status[info]]
         else:
-            if self.response_component_status is not None:
-                status = Status.rrset_status_mapping[self.response_component_status[info]]
-            else:
-                status = Status.rrset_status_mapping[Status.RRSET_STATUS_INSECURE]
+            status = Status.rrset_status_mapping[Status.RRSET_STATUS_INSECURE]
 
         rdata_tup = []
         children = []
         if isinstance(info, Response.RRsetInfo):
             if info.rrset.rdtype == dns.rdatatype.CNAME:
-                rdata_tup.append((None, [], [], 'CNAME %s' % (lb2s(info.rrset[0].target.to_text()))))
+                rdata_tup.append(
+                    (None, [], [], f'CNAME {lb2s(info.rrset[0].target.to_text())}')
+                )
             elif rdtype == dns.rdatatype.DNSKEY:
                 for d in info.rrset:
                     dnskey_meta = response_info.name_obj._dnskeys[d]
@@ -427,23 +446,35 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
                     errors = [e.terse_description for e in dnskey_meta.errors]
                     rdata_tup.append(('VALID', warnings, errors, '%d/%d/%d' % (d.algorithm, dnskey_meta.key_tag, d.flags)))
             elif rdtype == dns.rdatatype.DS:
-                dss = list(response_info.name_obj.ds_status_by_ds[dns.rdatatype.DS].keys())
-                dss.sort()
+                dss = sorted(response_info.name_obj.ds_status_by_ds[dns.rdatatype.DS].keys())
                 for ds in dss:
                     # only show the DS if in the RRset in question
                     if ds not in info.rrset:
                         continue
-                    dnskeys = list(response_info.name_obj.ds_status_by_ds[rdtype][ds].keys())
-                    dnskeys.sort()
+                    dnskeys = sorted(response_info.name_obj.ds_status_by_ds[rdtype][ds].keys())
                     for dnskey in dnskeys:
                         ds_status = response_info.name_obj.ds_status_by_ds[rdtype][ds][dnskey]
                         warnings = [w.terse_description for w in ds_status.warnings]
                         errors = [e.terse_description for e in ds_status.errors]
                         rdata_tup.append((Status.ds_status_mapping[ds_status.validation_status], warnings, errors, '%d/%d/%d' % (ds.algorithm, ds.key_tag, ds.digest_type)))
             elif rdtype == dns.rdatatype.NSEC3:
-                rdata_tup.append((None, [], [], '%s %s' % (fmt.format_nsec3_name(info.rrset.name), fmt.format_nsec3_rrset_text(info.rrset[0].to_text()))))
+                rdata_tup.append(
+                    (
+                        None,
+                        [],
+                        [],
+                        f'{fmt.format_nsec3_name(info.rrset.name)} {fmt.format_nsec3_rrset_text(info.rrset[0].to_text())}',
+                    )
+                )
             elif rdtype == dns.rdatatype.NSEC:
-                rdata_tup.append((None, [], [], '%s %s' % (lb2s(info.rrset.name.to_text()), info.rrset[0].to_text())))
+                rdata_tup.append(
+                    (
+                        None,
+                        [],
+                        [],
+                        f'{lb2s(info.rrset.name.to_text())} {info.rrset[0].to_text()}',
+                    )
+                )
             elif rdtype == dns.rdatatype.DNAME:
                 warnings = [w.terse_description for w in dname_status.warnings]
                 errors = [e.terse_description for e in dname_status.errors]
@@ -459,13 +490,20 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
                 children.extend(self._serialize_nsec_set_simple(info.wildcard_info[wildcard_name], response_info.name_obj.wildcard_status, response_info))
 
             if info in response_info.name_obj.dname_status:
-                for dname_status in response_info.name_obj.dname_status[info]:
-                    children.append(self._serialize_response_component_simple(dns.rdatatype.DNAME, response_info, dname_status.synthesized_cname.dname_info, True, dname_status))
-
+                children.extend(
+                    self._serialize_response_component_simple(
+                        dns.rdatatype.DNAME,
+                        response_info,
+                        dname_status.synthesized_cname.dname_info,
+                        True,
+                        dname_status,
+                    )
+                    for dname_status in response_info.name_obj.dname_status[info]
+                )
         elif isinstance(info, Errors.DomainNameAnalysisError):
             warnings = []
             errors = []
-            rdata_tup.append((None, [], [], '%s' % (info.terse_description)))
+            rdata_tup.append((None, [], [], f'{info.terse_description}'))
 
         elif info in self.nodata_status:
             warnings = [w.terse_description for w in response_info.name_obj.nodata_warnings[info]]
@@ -479,8 +517,12 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
             if not self.nodata_status[info] and not show_neg_response:
                 return None
             rdata_tup.append((None, [], [], 'NODATA'))
-            for soa_rrset_info in info.soa_rrset_info:
-                children.append(self._serialize_response_component_simple(dns.rdatatype.SOA, response_info, soa_rrset_info, True))
+            children.extend(
+                self._serialize_response_component_simple(
+                    dns.rdatatype.SOA, response_info, soa_rrset_info, True
+                )
+                for soa_rrset_info in info.soa_rrset_info
+            )
             children.extend(self._serialize_nsec_set_simple(info, response_info.name_obj.nodata_status, response_info))
 
         elif info in self.nxdomain_status:
@@ -495,8 +537,12 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
             if not self.nxdomain_status[info] and not show_neg_response:
                 return None
             rdata_tup.append((None, [], [], 'NXDOMAIN'))
-            for soa_rrset_info in info.soa_rrset_info:
-                children.append(self._serialize_response_component_simple(dns.rdatatype.SOA, response_info, soa_rrset_info, True))
+            children.extend(
+                self._serialize_response_component_simple(
+                    dns.rdatatype.SOA, response_info, soa_rrset_info, True
+                )
+                for soa_rrset_info in info.soa_rrset_info
+            )
             children.extend(self._serialize_nsec_set_simple(info, response_info.name_obj.nxdomain_status, response_info))
 
         return (dns.rdatatype.to_text(rdtype), status, warnings, errors, rdata_tup, children)
@@ -504,10 +550,9 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
     def _serialize_response_component_list_simple(self, rdtype, response_info, show_neg_response):
         tup = []
         for info, cname_chain_info in response_info.response_info_list:
-            val = self._serialize_response_component_simple(rdtype, response_info, info, show_neg_response)
-            # this might not return a non-empty value for a negative response,
-            # so we check for a non-empty value before appending it
-            if val:
+            if val := self._serialize_response_component_simple(
+                rdtype, response_info, info, show_neg_response
+            ):
                 tup.append(val)
         return tup
 
@@ -570,11 +615,7 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
             # serialize the DNSKEY response
             if response_info.rdtype == dns.rdatatype.DS and parent_obj.name == response_info.qname:
                 pass
-            # if the servers were unresponsive, then it's possible that no
-            # DNSKEY query was issued
-            elif (parent_obj.name, dns.rdatatype.DNSKEY) not in parent_obj.queries:
-                pass
-            else:
+            elif (parent_obj.name, dns.rdatatype.DNSKEY) in parent_obj.queries:
                 dnskey_response_info = parent_obj.get_response_info(parent_obj.name, dns.rdatatype.DNSKEY)
                 name_tup[7].extend(parent_obj._serialize_response_component_list_simple(dns.rdatatype.DNSKEY, dnskey_response_info, False))
 
@@ -583,7 +624,7 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
         # handle nxdomain_ancestor
         nxdomain_ancestor = response_info.name_obj.nxdomain_ancestor
         if nxdomain_ancestor is not None and \
-                (nxdomain_ancestor.name, -1) not in processed:
+                    (nxdomain_ancestor.name, -1) not in processed:
             processed.add((nxdomain_ancestor.name, -1))
 
             name_tup = (fmt.humanize_name(nxdomain_ancestor.name), None, [], [], None, [], [], [])
@@ -606,7 +647,7 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
             # if we've already done this one (above) then just move along.
             # These were only done if the name is a zone.
             if response_info.name_obj.is_zone() and \
-                    response_info.rdtype in (dns.rdatatype.DNSKEY, dns.rdatatype.DS):
+                        response_info.rdtype in (dns.rdatatype.DNSKEY, dns.rdatatype.DS):
                 continue
 
             name_tup[7].extend(response_info.name_obj._serialize_response_component_list_simple(response_info.rdtype, response_info, True))
@@ -635,37 +676,30 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
                 # if rdtypes was not specified, then serialize all, with some exceptions
                 if rdtype in (dns.rdatatype.DNSKEY, dns.rdatatype.DS, dns.rdatatype.DLV):
                     continue
-            else:
-                # if rdtypes was specified, then only serialize rdtypes that
-                # were specified
-                if qname != self.name or rdtype not in rdtypes:
-                    continue
+            elif qname != self.name or rdtype not in rdtypes:
+                continue
             if qname not in response_info_map:
                 response_info_map[qname] = {}
             response_info_map[qname][rdtype] = self.get_response_info(qname, rdtype)
 
         tuples = []
-        qnames = list(response_info_map.keys())
-        qnames.sort()
+        qnames = sorted(response_info_map.keys())
         for qname in qnames:
-            rdtypes = list(response_info_map[qname].keys())
-            rdtypes.sort()
+            rdtypes = sorted(response_info_map[qname].keys())
             response_info_list = [response_info_map[qname][r] for r in rdtypes]
             tuples.extend(self._serialize_status_simple(response_info_list, processed))
 
         return tuples
 
     def _rdtypes_for_analysis_level(self, level):
-        rdtypes = set([self.referral_rdtype, dns.rdatatype.NS])
+        rdtypes = {self.referral_rdtype, dns.rdatatype.NS}
         if level == self.RDTYPES_DELEGATION:
             return rdtypes
         rdtypes.update([dns.rdatatype.DNSKEY, dns.rdatatype.DS, dns.rdatatype.DLV])
         if level == self.RDTYPES_SECURE_DELEGATION:
             return rdtypes
         rdtypes.update([dns.rdatatype.A, dns.rdatatype.AAAA])
-        if level == self.RDTYPES_NS_TARGET:
-            return rdtypes
-        return None
+        return rdtypes if level == self.RDTYPES_NS_TARGET else None
 
     def _server_responsive_with_condition(self, server, client, tcp, response_test):
         for query in self.queries.values():
@@ -836,7 +870,7 @@ class OfflineDomainNameAnalysis(OnlineDomainNameAnalysis):
         if self.dlv_parent is not None:
             self.dlv_parent._populate_status(trusted_keys, supported_algs, supported_digest_algs, is_dlv=True, trace=trace + [self])
 
-        _logger.debug('Assessing status of %s...' % (fmt.humanize_name(self.name)))
+        _logger.debug(f'Assessing status of {fmt.humanize_name(self.name)}...')
         self._populate_name_status()
         self._index_dnskeys()
         self._populate_rrsig_status_all(supported_algs)

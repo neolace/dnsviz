@@ -131,11 +131,11 @@ def get_trusted_keys(s):
     for rrset in m.answer:
         if rrset.rdtype != dns.rdatatype.DNSKEY:
             continue
-        for dnskey in rrset:
-            if dnskey.flags & fmt.DNSKEY_FLAGS['revoke']:
-                continue
-            trusted_keys.append((rrset.name,dnskey))
-
+        trusted_keys.extend(
+            (rrset.name, dnskey)
+            for dnskey in rrset
+            if not dnskey.flags & fmt.DNSKEY_FLAGS['revoke']
+        )
     return trusted_keys
 
 def get_default_trusted_keys(date):
@@ -171,10 +171,7 @@ def get_root_hints():
         return get_hints(ROOT_HINTS_STR_DEFAULT)
 
 def get_client_address(server):
-    if server.version == 6:
-        af = socket.AF_INET6
-    else:
-        af = socket.AF_INET
+    af = socket.AF_INET6 if server.version == 6 else socket.AF_INET
     s = socket.socket(af, socket.SOCK_DGRAM)
     try:
         s.connect((server, 53))

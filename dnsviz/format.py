@@ -65,10 +65,7 @@ class UTC(datetime.tzinfo):
 
     def tzname(self, dt):
         # python3/python2 dual compatibility
-        if type(b'') is str:
-            return b'UTC'
-        else:
-            return 'UTC'
+        return b'UTC' if type(b'') is str else 'UTC'
 
     def dst(self, dt):
         return ZERO
@@ -93,10 +90,7 @@ def str_to_timestamp(s):
         return calendar.timegm(time.strptime(s, FMT_MS))
 
 def datetime_to_str(dt):
-    if dt.microsecond:
-        return dt.strftime(FMT_MS)
-    else:
-        return dt.strftime(FMT_NO_MS)
+    return dt.strftime(FMT_MS) if dt.microsecond else dt.strftime(FMT_NO_MS)
 
 def timestamp_to_str(timestamp):
     return datetime_to_str(timestamp_to_datetime(timestamp))
@@ -113,31 +107,19 @@ def humanize_time(seconds, days=None):
 
     output = ''
     if days > 0:
-        if days != 1:
-            plural = 's'
-        else:
-            plural = ''
+        plural = 's' if days != 1 else ''
         output += '%d day%s' % (days, plural)
     else:
         if hours > 0:
-            if hours != 1:
-                plural = 's'
-            else:
-                plural = ''
+            plural = 's' if hours != 1 else ''
             output += '%d hour%s' % (hours, plural)
         if minutes > 0:
             if output:
                 output += ', '
-            if minutes != 1:
-                plural = 's'
-            else:
-                plural = ''
+            plural = 's' if minutes != 1 else ''
             output += '%d minute%s' % (minutes, plural)
         if not output:
-            if seconds != 1:
-                plural = 's'
-            else:
-                plural = ''
+            plural = 's' if seconds != 1 else ''
             output += '%d second%s' % (seconds, plural)
     return output
 
@@ -148,7 +130,7 @@ def format_diff(date_now, date_relative):
     else:
         diff = date_relative - date_now
         suffix = 'in the future'
-    return '%s %s' % (humanize_time(diff.seconds, diff.days), suffix)
+    return f'{humanize_time(diff.seconds, diff.days)} {suffix}'
 
 #################
 # Human representation of DNS names
@@ -156,7 +138,11 @@ def format_nsec3_name(name):
     return lb2s(dns.name.from_text(name.labels[0].upper(), name.parent().canonicalize()).to_text())
 
 def format_nsec3_rrset_text(nsec3_rrset_text):
-    return re.sub(r'^(\d+\s+\d+\s+\d+\s+\S+\s+)([0-9a-zA-Z]+)', lambda x: '%s%s' % (x.group(1), x.group(2).upper()), nsec3_rrset_text).rstrip('.')
+    return re.sub(
+        r'^(\d+\s+\d+\s+\d+\s+\S+\s+)([0-9a-zA-Z]+)',
+        lambda x: f'{x.group(1)}{x.group(2).upper()}',
+        nsec3_rrset_text,
+    ).rstrip('.')
 
 def humanize_name(name, idn=False, canonicalize=True):
     if canonicalize:
@@ -168,15 +154,11 @@ def humanize_name(name, idn=False, canonicalize=True):
             name = lb2s(name.to_text())
     else:
         name = lb2s(name.to_text())
-    if name == '.':
-        return name
-    return name.rstrip('.')
+    return name if name == '.' else name.rstrip('.')
 
 def latin1_binary_to_string(s):
     # python3/python2 dual compatibility
     #XXX In places where this method wraps calls to dns.name.Name.to_text(),
     # this is no longer needed with dnspython 1.15.0
-    if isinstance(s, bytes):
-        return codecs.decode(s, 'latin1')
-    return s
+    return codecs.decode(s, 'latin1') if isinstance(s, bytes) else s
 lb2s = latin1_binary_to_string

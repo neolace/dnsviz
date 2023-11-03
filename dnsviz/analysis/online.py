@@ -202,7 +202,7 @@ class OnlineDomainNameAnalysis(object):
         self.cookie_jar = {}
 
     def __repr__(self):
-        return '<%s %s>' % (self.__class__.__name__, self.__str__())
+        return f'<{self.__class__.__name__} {self.__str__()}>'
 
     def __str__(self):
         return fmt.humanize_name(self.name, True)
@@ -214,19 +214,13 @@ class OnlineDomainNameAnalysis(object):
         return hash(self.name)
 
     def parent_name(self):
-        if self.parent is not None:
-            return self.parent.name
-        return None
+        return self.parent.name if self.parent is not None else None
 
     def dlv_parent_name(self):
-        if self.dlv_parent is not None:
-            return self.dlv_parent.name
-        return None
+        return self.dlv_parent.name if self.dlv_parent is not None else None
 
     def nxdomain_ancestor_name(self):
-        if self.nxdomain_ancestor is not None:
-            return self.nxdomain_ancestor.name
-        return None
+        return None if self.nxdomain_ancestor is None else self.nxdomain_ancestor.name
 
     def _set_dlv_parent(self, dlv_parent):
         self._dlv_parent = dlv_parent
@@ -251,10 +245,7 @@ class OnlineDomainNameAnalysis(object):
         return bool(self.has_ns or self.name == dns.name.root or self._auth_ns_ip_mapping)
 
     def _get_zone(self):
-        if self.is_zone():
-            return self
-        else:
-            return self.parent
+        return self if self.is_zone() else self.parent
     zone = property(_get_zone)
 
     def single_client(self, exclude_loopback=True, exclude_ipv4_mapped=True):
@@ -385,9 +376,7 @@ class OnlineDomainNameAnalysis(object):
                         pass
                     elif rrsig_rrset.covers == dns.rdatatype.DLV and rrsig.signer == self.dlv_parent_name():
                         pass
-                    elif rrsig.signer == self.zone.name:
-                        pass
-                    else:
+                    elif rrsig.signer != self.zone.name:
                         self.external_signers[rrsig.signer] = None
             except KeyError:
                 pass
@@ -418,15 +407,10 @@ class OnlineDomainNameAnalysis(object):
             # authoritativeness means nothing to us.
             if query.rdtype in (dns.rdatatype.DS, dns.rdatatype.DLV):
                 pass
-            # If this response comes from a parent server, and the response was
-            # NXDOMAIN, then don't count it as authoritative.  Either it was
-            # the child of a zone, in which case _auth_servers_clients doesn't
-            # matter (since _auth_servers_clients is only used for zones), or
-            # it was a zone itself, and not all servers in the parent carry the
-            # delegation
-            elif response.message.rcode() == dns.rcode.NXDOMAIN and bailiwick != self.name:
-                pass
-            else:
+            elif (
+                response.message.rcode() != dns.rcode.NXDOMAIN
+                or bailiwick == self.name
+            ):
                 self._auth_servers_clients.add((server, client))
 
         if not response.is_complete_response():
@@ -591,8 +575,7 @@ class OnlineDomainNameAnalysis(object):
             auth_ips = self.get_auth_ns_ip_mapping()
             for name in glue_ips:
                 in_bailiwick = name.is_subdomain(self.parent_name())
-                glue_required = name.is_subdomain(self.name)
-                if glue_required:
+                if glue_required := name.is_subdomain(self.name):
                     servers.update(glue_ips[name])
                 elif in_bailiwick:
                     if glue_ips[name]:
@@ -639,9 +622,9 @@ class OnlineDomainNameAnalysis(object):
         '''Return the set of servers that responded with a valid (rcode of
         NOERROR or NXDOMAIN) response.'''
 
-        valid_servers = set([x[0] for x in self._valid_servers_clients_udp])
+        valid_servers = {x[0] for x in self._valid_servers_clients_udp}
         if proto is not None:
-            return set([x for x in valid_servers if x.version == proto])
+            return {x for x in valid_servers if x.version == proto}
         else:
             return valid_servers
 
@@ -649,9 +632,9 @@ class OnlineDomainNameAnalysis(object):
         '''Return the set of servers that responded with a valid (rcode of
         NOERROR or NXDOMAIN) response.'''
 
-        valid_servers = set([x[0] for x in self._valid_servers_clients_tcp])
+        valid_servers = {x[0] for x in self._valid_servers_clients_tcp}
         if proto is not None:
-            return set([x for x in valid_servers if x.version == proto])
+            return {x for x in valid_servers if x.version == proto}
         else:
             return valid_servers
 
@@ -659,9 +642,9 @@ class OnlineDomainNameAnalysis(object):
         '''Return the set of servers for which some type of response was
         received from any client over UDP.'''
 
-        responsive_servers = set([x[0] for x in self._responsive_servers_clients_udp])
+        responsive_servers = {x[0] for x in self._responsive_servers_clients_udp}
         if proto is not None:
-            return set([x for x in responsive_servers if x.version == proto])
+            return {x for x in responsive_servers if x.version == proto}
         else:
             return responsive_servers
 
@@ -669,9 +652,9 @@ class OnlineDomainNameAnalysis(object):
         '''Return the set of servers for which some type of response was
         received from any client over TCP.'''
 
-        responsive_servers = set([x[0] for x in self._responsive_servers_clients_tcp])
+        responsive_servers = {x[0] for x in self._responsive_servers_clients_tcp}
         if proto is not None:
-            return set([x for x in responsive_servers if x.version == proto])
+            return {x for x in responsive_servers if x.version == proto}
         else:
             return responsive_servers
 
@@ -680,16 +663,15 @@ class OnlineDomainNameAnalysis(object):
         or were explicitly designated by NS and glue or authoritative IP.'''
 
         if not hasattr(self, '_auth_or_designated_servers') or self._auth_or_designated_servers is None:
-            servers = set([x[0] for x in self._auth_servers_clients]).union(self.get_designated_servers(no_cache))
+            servers = {x[0] for x in self._auth_servers_clients}.union(
+                self.get_designated_servers(no_cache)
+            )
             if not no_cache:
                 self._auth_or_designated_servers = servers
         else:
             servers = self._auth_or_designated_servers
 
-        if proto is not None:
-            return set([x for x in servers if x.version == proto])
-        else:
-            return servers
+        return servers if proto is None else {x for x in servers if x.version == proto}
 
     def get_responsive_auth_or_designated_servers(self, proto=None, no_cache=False):
         '''Return the set of servers that either answered authoritatively
@@ -727,11 +709,7 @@ class OnlineDomainNameAnalysis(object):
             else:
                 glue_ips = self.get_glue_ip_mapping()
             auth_ips = self.get_auth_ns_ip_mapping()
-            if self.stub:
-                auth_names = set(auth_ips)
-            else:
-                auth_names = self.get_ns_names()
-
+            auth_names = set(auth_ips) if self.stub else self.get_ns_names()
             # if there are no names from glue or from authoritative responses,
             # then use the authoritative IP.  Such is the case with explicit
             # delegation
@@ -793,11 +771,8 @@ class OnlineDomainNameAnalysis(object):
         if self.nxdomain_ancestor is not None:
             self.nxdomain_ancestor.serialize(d, meta_only, trace + [self])
 
-        clients_ipv4 = list(self.clients_ipv4)
-        clients_ipv4.sort()
-        clients_ipv6 = list(self.clients_ipv6)
-        clients_ipv6.sort()
-
+        clients_ipv4 = sorted(self.clients_ipv4)
+        clients_ipv6 = sorted(self.clients_ipv6)
         d[name_str] = OrderedDict()
         d[name_str]['type'] = analysis_types[self.analysis_type]
         d[name_str]['stub'] = self.stub
@@ -836,19 +811,16 @@ class OnlineDomainNameAnalysis(object):
     def _serialize_related(self, d, meta_only):
         if self._auth_ns_ip_mapping:
             d['auth_ns_ip_mapping'] = OrderedDict()
-            ns_names = list(self._auth_ns_ip_mapping.keys())
-            ns_names.sort()
+            ns_names = sorted(self._auth_ns_ip_mapping.keys())
             for name in ns_names:
-                addrs = list(self._auth_ns_ip_mapping[name])
-                addrs.sort()
+                addrs = sorted(self._auth_ns_ip_mapping[name])
                 d['auth_ns_ip_mapping'][lb2s(name.canonicalize().to_text())] = addrs
 
         if self.stub:
             return
 
         d['queries'] = []
-        query_keys = list(self.queries.keys())
-        query_keys.sort()
+        query_keys = sorted(self.queries.keys())
         for (qname, rdtype) in query_keys:
             for query in self.queries[(qname, rdtype)].queries.values():
                 d['queries'].append(query.serialize(meta_only))
@@ -909,12 +881,8 @@ class OnlineDomainNameAnalysis(object):
             cookie_standin = binascii.unhexlify(d['cookie_standin'])
         else:
             cookie_standin = None
-        if 'cookie_bad' in d:
-            cookie_bad = binascii.unhexlify(d['cookie_bad'])
-        else:
-            cookie_bad = None
-
-        _logger.info('Loading %s' % fmt.humanize_name(name))
+        cookie_bad = binascii.unhexlify(d['cookie_bad']) if 'cookie_bad' in d else None
+        _logger.info(f'Loading {fmt.humanize_name(name)}')
 
         cache[name] = a = cls(name, stub=stub, analysis_type=analysis_type, cookie_standin=cookie_standin, cookie_bad=cookie_bad, **kwargs)
         a.parent = parent
@@ -996,7 +964,9 @@ class OnlineDomainNameAnalysis(object):
                 continue
             key = (self.name, rdtype)
             if key in query_map:
-                _logger.debug('Importing %s/%s...' % (fmt.humanize_name(self.name), dns.rdatatype.to_text(rdtype)))
+                _logger.debug(
+                    f'Importing {fmt.humanize_name(self.name)}/{dns.rdatatype.to_text(rdtype)}...'
+                )
                 for query in query_map[key]:
                     detect_ns = rdtype in (dns.rdatatype.NS, self.referral_rdtype, self.auth_rdtype)
                     detect_cookies = rdtype == self.cookie_rdtype
@@ -1006,7 +976,7 @@ class OnlineDomainNameAnalysis(object):
         if self.is_zone():
             self.set_ns_dependencies()
 
-        for key in query_map:
+        for key, value in query_map.items():
             qname, rdtype = key
             # if the query has already been imported, then
             # don't re-import
@@ -1020,8 +990,10 @@ class OnlineDomainNameAnalysis(object):
                 extra = ' (NODATA)'
             else:
                 extra = ''
-            _logger.debug('Importing %s/%s%s...' % (fmt.humanize_name(qname), dns.rdatatype.to_text(rdtype), extra))
-            for query in query_map[key]:
+            _logger.debug(
+                f'Importing {fmt.humanize_name(qname)}/{dns.rdatatype.to_text(rdtype)}{extra}...'
+            )
+            for query in value:
                 self.add_query(Q.DNSQuery.deserialize(query, bailiwick_map, default_bailiwick, cookie_jar_map, default_cookie_jar, cookie_standin, cookie_bad), False, False)
 
     def _deserialize_dependencies(self, d, cache):
@@ -1105,16 +1077,8 @@ class Analyst(object):
         else:
             self.explicit_delegations = explicit_delegations
 
-        if stop_at_explicit is None:
-            self.stop_at_explicit = {}
-        else:
-            self.stop_at_explicit = stop_at_explicit
-
-        if odd_ports is None:
-            self.odd_ports = {}
-        else:
-            self.odd_ports = odd_ports
-
+        self.stop_at_explicit = {} if stop_at_explicit is None else stop_at_explicit
+        self.odd_ports = {} if odd_ports is None else odd_ports
         if resolver is None:
             resolver = self._get_resolver()
         self.resolver = resolver
@@ -1160,19 +1124,12 @@ class Analyst(object):
         self.follow_ns = follow_ns
         self.follow_mx = follow_mx
 
-        if trace is None:
-            self.trace = []
-        else:
-            self.trace = trace
-
+        self.trace = [] if trace is None else trace
         assert not explicit_only or extra_rdtypes is not None or self._force_dnskey_query(name), 'If explicit_only is specified, then extra_rdtypes must be specified or force_dnskey must be true.'
 
         self.extra_rdtypes = extra_rdtypes
         self.explicit_only = explicit_only
-        if analysis_cache is None:
-            self.analysis_cache = {}
-        else:
-            self.analysis_cache = analysis_cache
+        self.analysis_cache = {} if analysis_cache is None else analysis_cache
         self.cache_level = cache_level
         if analysis_cache_lock is None:
             self.analysis_cache_lock = threading.Lock()
@@ -1206,7 +1163,7 @@ class Analyst(object):
             return
 
         cname = self.name
-        for i in range(Resolver.MAX_CNAME_REDIRECTION):
+        for _ in range(Resolver.MAX_CNAME_REDIRECTION):
             try:
                 cname = ans.response.find_rrset(ans.response.answer, cname, self.rdclass, dns.rdatatype.CNAME)[0].target
                 self._cname_chain.append(cname)
@@ -1240,10 +1197,7 @@ class Analyst(object):
             pass
         except dns.exception.DNSException as e:
             parent_ceiling, fail = self._detect_ceiling(ceiling.parent())
-            if fail:
-                return parent_ceiling, True
-            else:
-                return ceiling, True
+            return (parent_ceiling, True) if fail else (ceiling, True)
         return self._detect_ceiling(ceiling.parent())
 
     def _get_servers_from_hints(self, name, hints):
@@ -1265,9 +1219,9 @@ class Analyst(object):
         else:
             servers = self._get_servers_from_hints(dns.name.root, util.get_root_hints())
         if proto == 4:
-            servers = set([x for x in servers if x.version == 4])
+            servers = {x for x in servers if x.version == 4}
         elif proto == 6:
-            servers = set([x for x in servers if x.version == 6])
+            servers = {x for x in servers if x.version == 6}
         return servers
 
     def _is_referral_of_type(self, rdtype):
@@ -1298,9 +1252,8 @@ class Analyst(object):
             if self.name == name:
                 if self.extra_rdtypes is not None:
                     rdtypes.extend(self.extra_rdtypes)
-            else:
-                if name in self._cname_chain:
-                    rdtypes.extend(self._rdtypes_to_query(self.name))
+            elif name in self._cname_chain:
+                rdtypes.extend(self._rdtypes_to_query(self.name))
         else:
             rdtypes.extend(self._rdtypes_to_query_for_name(name))
             if self.name == name:
@@ -1317,10 +1270,7 @@ class Analyst(object):
                 if self._ask_tlsa_queries(self.name) and len(name) == len(self.name) - 2:
                     rdtypes.extend([dns.rdatatype.A, dns.rdatatype.AAAA])
 
-        # remove duplicates
-        rdtypes = list(OrderedDict.fromkeys(rdtypes))
-
-        return rdtypes
+        return list(OrderedDict.fromkeys(rdtypes))
 
     def _rdtypes_to_query_for_name(self, name):
         rdtypes = []
@@ -1356,39 +1306,35 @@ class Analyst(object):
 
         # if this name is in the in-addr.arpa tree and is the length of a full
         # reverse IPv4 address, then return True
-        if name.is_subdomain(INADDR_ARPA_NAME) and len(name) == 7:
-            return True
-
-        return False
+        return bool(name.is_subdomain(INADDR_ARPA_NAME) and len(name) == 7)
 
     def _ask_naptr_queries(self, name):
         '''Return True if NAPTR queries should be asked for this name, as guessed by
         the nature of the name, based on its presence in the e164.arpa tree.'''
 
-        if name.is_subdomain(E164_ARPA_NAME) and name != E164_ARPA_NAME:
-            return True
-
-        return False
+        return bool(name.is_subdomain(E164_ARPA_NAME) and name != E164_ARPA_NAME)
 
     def _ask_tlsa_queries(self, name):
         '''Return True if TLSA queries should be asked for this name, which is
         determined by examining the structure of the name for _<port>._<proto>
         format.'''
 
-        if len(name) > 2 and DANE_PORT_RE.search(lb2s(name[0])) is not None and PROTO_LABEL_RE.search(lb2s(name[1])) is not None:
-            return True
-
-        return False
+        return (
+            len(name) > 2
+            and DANE_PORT_RE.search(lb2s(name[0])) is not None
+            and PROTO_LABEL_RE.search(lb2s(name[1])) is not None
+        )
 
     def _ask_srv_queries(self, name):
         '''Return True if SRV queries should be asked for this name, which is
         determined by examining the structure of the name for common
         service-related names.'''
 
-        if len(name) > 2 and SRV_PORT_RE.search(lb2s(name[0])) is not None and PROTO_LABEL_RE.search(lb2s(name[1])) is not None:
-            return True
-
-        return False
+        return (
+            len(name) > 2
+            and SRV_PORT_RE.search(lb2s(name[0])) is not None
+            and PROTO_LABEL_RE.search(lb2s(name[1])) is not None
+        )
 
     def _is_dkim(self, name):
         '''Return True if the name is a DKIM name.'''
@@ -1404,14 +1350,17 @@ class Analyst(object):
         '''Return True if non-delegation-related queries should be asked for
         name.'''
 
-        if self.qname_only and not \
-                (name == self.name or \
-                name in self._cname_chain or \
-                (self._ask_tlsa_queries(self.name) and len(name) == len(self.name) - 2)):
-            return False
-        if self.dlv_domain == self.name:
-            return False
-        return True
+        return (
+            False
+            if self.qname_only
+            and name != self.name
+            and name not in self._cname_chain
+            and (
+                not self._ask_tlsa_queries(self.name)
+                or len(name) != len(self.name) - 2
+            )
+            else self.dlv_domain != self.name
+        )
 
     def _add_query(self, name_obj, query, detect_ns, detect_cookies, iterative=False):
         # if this query is empty (i.e., nothing was actually asked, e.g., due
@@ -1431,7 +1380,11 @@ class Analyst(object):
 
     def _filter_servers_locality(self, servers):
         if not self.allow_loopback_query:
-            servers = [x for x in servers if not LOOPBACK_IPV4_RE.match(x) and not x == LOOPBACK_IPV6]
+            servers = [
+                x
+                for x in servers
+                if not LOOPBACK_IPV4_RE.match(x) and x != LOOPBACK_IPV6
+            ]
         if not self.allow_private_query:
             servers = [x for x in servers if not RFC_1918_RE.match(x) and not LINK_LOCAL_RE.match(x) and not UNIQ_LOCAL_RE.match(x)]
         return [x for x in servers if ZERO_SLASH8_RE.search(x) is None]
@@ -1447,13 +1400,11 @@ class Analyst(object):
             try:
                 name_obj = self.analysis_cache[name]
             except KeyError:
-                if lock:
-                    name_obj = self.analysis_cache[name] = self.analysis_model(name, stub=stub, analysis_type=self.analysis_type, cookie_standin=COOKIE_STANDIN)
-                    return name_obj
-                # if not locking, then return None
-                else:
+                if not lock:
                     return None
 
+                name_obj = self.analysis_cache[name] = self.analysis_model(name, stub=stub, analysis_type=self.analysis_type, cookie_standin=COOKIE_STANDIN)
+                return name_obj
         # if there is a complete event, then wait on it
         if hasattr(name_obj, 'complete'):
             name_obj.complete.wait()
@@ -1478,7 +1429,7 @@ class Analyst(object):
             # and previously the necessary queries weren't asked
             if self._is_referral_of_type(dns.rdatatype.CNAME):
                 rdtypes_to_query = set(self._rdtypes_to_query(name))
-                rdtypes_queried = set([r for n,r in name_obj.queries if n == name_obj.name])
+                rdtypes_queried = {r for n,r in name_obj.queries if n == name_obj.name}
                 if rdtypes_to_query.difference(rdtypes_queried):
                     redo_analysis = True
 
@@ -1552,7 +1503,7 @@ class Analyst(object):
             return name_obj
 
         try:
-            self.logger.info('Analyzing %s (stub)' % fmt.humanize_name(name))
+            self.logger.info(f'Analyzing {fmt.humanize_name(name)} (stub)')
 
             name_obj.analysis_start = datetime.datetime.now(fmt.utc).replace(microsecond=0)
 
@@ -1677,7 +1628,7 @@ class Analyst(object):
         return name_obj
 
     def _analyze_name(self, name_obj):
-        self.logger.info('Analyzing %s' % fmt.humanize_name(name_obj.name))
+        self.logger.info(f'Analyzing {fmt.humanize_name(name_obj.name)}')
 
         self._handle_explicit_delegations(name_obj)
         if not name_obj.explicit_delegation:

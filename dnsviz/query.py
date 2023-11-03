@@ -187,7 +187,7 @@ class DNSQueryRetryAttempt:
         self.action_arg = action_arg
 
     def __repr__(self):
-        return '<Retry: %s -> %s>' % (retry_causes[self.cause], retry_actions[self.action])
+        return f'<Retry: {retry_causes[self.cause]} -> {retry_actions[self.action]}>'
 
     def serialize(self):
         '''Return a serialized version of the query.'''
@@ -219,24 +219,22 @@ class DNSQueryRetryAttempt:
             response_time = d['time_elapsed']/1000.0
         cause = retry_cause_codes[d['cause']]
         if 'cause_arg' in d:
-            if cause == RETRY_CAUSE_NETWORK_ERROR:
-                # compatibility with version 1.0
-                if isinstance(d['cause_arg'], int):
-                    cause_arg = d['cause_arg']
-                else:
-                    if hasattr(errno, d['cause_arg']):
-                        cause_arg = getattr(errno, d['cause_arg'])
-                    else:
-                        cause_arg = None
+            if (
+                cause == RETRY_CAUSE_NETWORK_ERROR
+                and not isinstance(d['cause_arg'], int)
+                and hasattr(errno, d['cause_arg'])
+            ):
+                cause_arg = getattr(errno, d['cause_arg'])
+            elif cause == RETRY_CAUSE_NETWORK_ERROR and not isinstance(
+                d['cause_arg'], int
+            ):
+                cause_arg = None
             else:
                 cause_arg = d['cause_arg']
         else:
             cause_arg = None
         action = retry_action_codes[d['action']]
-        if 'action_arg' in d:
-            action_arg = d['action_arg']
-        else:
-            action_arg = None
+        action_arg = d['action_arg'] if 'action_arg' in d else None
         return DNSQueryRetryAttempt(response_time, cause, cause_arg, action, action_arg)
 
 class DNSResponseHandlerFactory(object):
@@ -329,10 +327,7 @@ class RetryOnNetworkErrorHandler(DNSResponseHandler):
             raise AcceptResponse()
 
         if isinstance(response, (socket.error, EOFError)):
-            if hasattr(response, 'errno'):
-                errno1 = response.errno
-            else:
-                errno1 = None
+            errno1 = response.errno if hasattr(response, 'errno') else None
             self._params['wait'] = 0.2*(2**errors)
 
             if self._params['tcp']:
@@ -517,18 +512,12 @@ class UseUDPOnNetworkErrorHandler(DNSResponseHandler):
     def handle(self, response_wire, response, response_time):
         errors = self._get_num_network_errors(response)
         if errors >= self._max_errors and self._params['tcp']:
-            if hasattr(response, 'errno'):
-                errno1 = response.errno
-            else:
-                errno1 = None
+            errno1 = response.errno if hasattr(response, 'errno') else None
             self._params['tcp'] = False
             return DNSQueryRetryAttempt(response_time, RETRY_CAUSE_NETWORK_ERROR, errno1, RETRY_ACTION_USE_UDP, None)
 
         if isinstance(response, (socket.error, EOFError)):
-            if hasattr(response, 'errno'):
-                errno1 = response.errno
-            else:
-                errno1 = None
+            errno1 = response.errno if hasattr(response, 'errno') else None
             self._params['wait'] = 0.2*(2**errors)
 
             if self._params['tcp']:
@@ -589,15 +578,13 @@ class PMTUBoundingHandler(DNSResponseHandler):
         is_timeout = isinstance(response, dns.exception.Timeout)
         is_valid = isinstance(response, dns.message.Message) and response.rcode() in (dns.rcode.NOERROR, dns.rcode.NXDOMAIN)
         is_truncated = response_wire is not None and map_func(response_wire[2]) & 0x02
-        if response_wire is not None:
-            response_len = len(response_wire)
-        else:
-            response_len = None
-
-        if self._request.edns >= 0 and \
-                (is_timeout or is_valid or is_truncated):
-            pass
-        else:
+        response_len = len(response_wire) if response_wire is not None else None
+        if (
+            self._request.edns < 0
+            or not is_timeout
+            and not is_valid
+            and not is_truncated
+        ):
             self._state = self.INVALID
             return
 
@@ -616,15 +603,18 @@ class PMTUBoundingHandler(DNSResponseHandler):
                 return None
 
             if not is_timeout:
-                if is_truncated or is_valid:
+                if is_truncated:
                     self._lower_bound = self._water_mark = response_len
                     self._params['timeout'] = self._bounding_timeout
                     self._params['tcp'] = True
                     self._state = self.USE_TCP
-                    if is_truncated:
-                        return DNSQueryRetryAttempt(response_time, RETRY_CAUSE_TC_SET, response_len, RETRY_ACTION_USE_TCP, None)
-                    else:
-                        return DNSQueryRetryAttempt(response_time, RETRY_CAUSE_DIAGNOSTIC, response_len, RETRY_ACTION_USE_TCP, None)
+                    return DNSQueryRetryAttempt(response_time, RETRY_CAUSE_TC_SET, response_len, RETRY_ACTION_USE_TCP, None)
+                elif is_valid:
+                    self._lower_bound = self._water_mark = response_len
+                    self._params['timeout'] = self._bounding_timeout
+                    self._params['tcp'] = True
+                    self._state = self.USE_TCP
+                    return DNSQueryRetryAttempt(response_time, RETRY_CAUSE_DIAGNOSTIC, response_len, RETRY_ACTION_USE_TCP, None)
 
         elif self._state == self.USE_TCP:
             if not is_timeout and is_valid:
@@ -695,12 +685,6 @@ class PMTUBoundingHandler(DNSResponseHandler):
                 self._request.use_edns(self._request.edns, self._request.ednsflags,
                         payload, options=self._request.options)
                 return DNSQueryRetryAttempt(response_time, RETRY_CAUSE_DIAGNOSTIC, response_len, RETRY_ACTION_CHANGE_UDP_MAX_PAYLOAD, payload)
-
-        elif self._state == self.TCP_FINAL:
-            pass
-
-        elif self._state == self.INVALID:
-            pass
 
 class ChangeTimeoutOnTimeoutHandler(ActionIndependentDNSResponseHandler):
     '''Modify timeout value when a certain number of timeouts is reached.'''
@@ -801,9 +785,7 @@ class DNSQueryHandler:
         if self._expiration is None:
             return self.params['timeout']
         timeout = min(self.params['timeout'], self.get_remaining_lifetime())
-        if timeout < MIN_QUERY_TIMEOUT:
-            return MIN_QUERY_TIMEOUT
-        return timeout
+        return max(timeout, MIN_QUERY_TIMEOUT)
 
     def handle_response(self, response_wire, response, response_time, client, sport):
         retry_action = None
@@ -820,27 +802,26 @@ class DNSQueryHandler:
                     handler.handle(response_wire, response, response_time)
 
             if retry_action is not None:
-                # If we were unable to bind to the source address, then this is
-                # our fault
-                if retry_action.cause == RETRY_CAUSE_NETWORK_ERROR and retry_action.cause_arg == errno.EADDRNOTAVAIL:
-                    raise AcceptResponse
+                if retry_action.cause == RETRY_CAUSE_NETWORK_ERROR:
+                    if retry_action.cause_arg == errno.EADDRNOTAVAIL:
+                        raise AcceptResponse
 
-                # If there is no client-side connectivity, then simply return.
-                #
-                #XXX (Note that this only catches the case when a client IP has
-                # not been explicitly specified (i.e., self._client is None).
-                # Explicitly specifying a client IP that cannot connect to a
-                # given destination (e.g., because it is of the wrong address
-                # scope) will result in a regular network failure with
-                # EHOSTUNREACH or ENETUNREACH, as there is no scope comparison
-                # in this code.)
-                if retry_action.cause == RETRY_CAUSE_NETWORK_ERROR and retry_action.cause_arg in (errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EAFNOSUPPORT) and client is None:
-                    raise AcceptResponse
+                    if (
+                        retry_action.cause_arg
+                        in (
+                            errno.EHOSTUNREACH,
+                            errno.ENETUNREACH,
+                            errno.EAFNOSUPPORT,
+                        )
+                        and client is None
+                    ):
+                        raise AcceptResponse
 
                 # if this error was our fault, don't add it to the history
-                if retry_action.cause == RETRY_CAUSE_NETWORK_ERROR and retry_action.cause_arg == errno.EMFILE:
-                    pass
-                else:
+                if (
+                    retry_action.cause != RETRY_CAUSE_NETWORK_ERROR
+                    or retry_action.cause_arg != errno.EMFILE
+                ):
                     self.history.append(retry_action)
 
             self._set_query_time()
@@ -884,13 +865,18 @@ class AggregateDNSResponse(object):
             i = 0
             while i < MAX_CNAME_REDIRECTION:
 
-                # synthesize a CNAME from a DNAME, if possible
-                synthesized_cname_info = None
-                for dname_rrset in dname_rrsets:
-                    if qname_sought.parent().is_subdomain(dname_rrset.name):
-                        synthesized_cname_info = RRsetInfo(cname_from_dname(qname_sought, dname_rrset), self.ttl_cmp, RRsetInfo(dname_rrset, self.ttl_cmp))
-                        break
-
+                synthesized_cname_info = next(
+                    (
+                        RRsetInfo(
+                            cname_from_dname(qname_sought, dname_rrset),
+                            self.ttl_cmp,
+                            RRsetInfo(dname_rrset, self.ttl_cmp),
+                        )
+                        for dname_rrset in dname_rrsets
+                        if qname_sought.parent().is_subdomain(dname_rrset.name)
+                    ),
+                    None,
+                )
                 try:
                     rrset_info = self._aggregate_answer_rrset(server, client, response, qname_sought, rdtype, rdclass, referral)
 
@@ -1004,11 +990,17 @@ class DNSQuery(object):
         if not (isinstance(query, DNSQuery)):
             raise ValueError('A DNSQuery instance can only be joined with another DNSQuery instance.')
 
-        if not (self.qname.to_text() == query.qname.to_text() and self.rdtype == query.rdtype and \
-                self.rdclass == query.rdclass and self.flags == query.flags and \
-                self.edns == query.edns and self.edns_max_udp_payload == query.edns_max_udp_payload and \
-                self.edns_flags == query.edns_flags and self.edns_options == query.edns_options and \
-                self.tcp == query.tcp):
+        if (
+            self.qname.to_text() != query.qname.to_text()
+            or self.rdtype != query.rdtype
+            or self.rdclass != query.rdclass
+            or self.flags != query.flags
+            or self.edns != query.edns
+            or self.edns_max_udp_payload != query.edns_max_udp_payload
+            or self.edns_flags != query.edns_flags
+            or self.edns_options != query.edns_options
+            or self.tcp != query.tcp
+        ):
             raise ValueError('DNS query parameters for DNSQuery instances being joined must be the same.')
 
         clone = self.copy(bailiwick_map, default_bailiwick)
@@ -1037,9 +1029,13 @@ class DNSQuery(object):
         if server not in self.responses:
             self.responses[server] = {}
         if response.query is not None and response.query is not self:
-            raise ValueError('Response for %s/%s is already associated with a query.' % (self.qname, dns.rdatatype.to_text(self.rdtype)))
+            raise ValueError(
+                f'Response for {self.qname}/{dns.rdatatype.to_text(self.rdtype)} is already associated with a query.'
+            )
         if client in self.responses[server]:
-            raise ValueError('Response for %s/%s from server %s to client %s already exists.' % (self.qname, dns.rdatatype.to_text(self.rdtype), server, client))
+            raise ValueError(
+                f'Response for {self.qname}/{dns.rdatatype.to_text(self.rdtype)} from server {server} to client {client} already exists.'
+            )
         response.query = self
         self.responses[server][client] = response
 
@@ -1071,14 +1067,16 @@ class DNSQuery(object):
         val = None
         for server in self.responses:
             for response in self.responses[server].values():
-                if not (response.is_valid_response() and response.is_complete_response()):
+                if (
+                    not response.is_valid_response()
+                    or not response.is_complete_response()
+                ):
                     continue
-                if response.is_nxdomain(self.qname, self.rdtype):
-                    if val is None:
-                        val = True
-                else:
+                if not response.is_nxdomain(self.qname, self.rdtype):
                     return False
 
+                if val is None:
+                    val = True
         if val is None:
             val = False
         return val
@@ -1087,14 +1085,16 @@ class DNSQuery(object):
         val = None
         for server in self.responses:
             for response in self.responses[server].values():
-                if not (response.is_valid_response() and response.is_complete_response()):
+                if (
+                    not response.is_valid_response()
+                    or not response.is_complete_response()
+                ):
                     continue
-                if response.not_delegation(self.qname, self.rdtype):
-                    if val is None:
-                        val = True
-                else:
+                if not response.not_delegation(self.qname, self.rdtype):
                     return False
 
+                if val is None:
+                    val = True
         if val is None:
             val = False
         return val
@@ -1152,12 +1152,10 @@ class DNSQuery(object):
             d['options']['tcp'] = self.tcp
 
         d['responses'] = OrderedDict()
-        servers = list(self.responses.keys())
-        servers.sort()
+        servers = sorted(self.responses.keys())
         for server in servers:
             d['responses'][server] = OrderedDict()
-            clients = list(self.responses[server].keys())
-            clients.sort()
+            clients = sorted(self.responses[server].keys())
             for client in clients:
                 if meta_only:
                     d['responses'][server][client] = self.responses[server][client].serialize_meta()
@@ -1167,7 +1165,7 @@ class DNSQuery(object):
         return d
 
     @classmethod
-    def deserialize(self, d, bailiwick_map, default_bailiwick, cookie_jar_map, default_cookie_jar, cookie_standin, cookie_bad):
+    def deserialize(cls, d, bailiwick_map, default_bailiwick, cookie_jar_map, default_cookie_jar, cookie_standin, cookie_bad):
         qname = dns.name.from_text(d['qname'])
         rdclass = dns.rdataclass.from_text(d['qclass'])
         rdtype = dns.rdatatype.from_text(d['qtype'])
@@ -1175,19 +1173,19 @@ class DNSQuery(object):
         d1 = d['options']
 
         flags = d1['flags']
+        edns_options = []
         if 'edns_version' in d1:
             edns = d1['edns_version']
             edns_max_udp_payload = d1['edns_max_udp_payload']
             edns_flags = d1['edns_flags']
-            edns_options = []
-            for otype, data in d1['edns_options']:
-                edns_options.append(dns.edns.GenericOption(otype, binascii.unhexlify(data)))
+            edns_options.extend(
+                dns.edns.GenericOption(otype, binascii.unhexlify(data))
+                for otype, data in d1['edns_options']
+            )
         else:
             edns = None
             edns_max_udp_payload = None
             edns_flags = None
-            edns_options = []
-
         tcp = d1['tcp']
 
         q = DNSQuery(qname, rdtype, rdclass,
@@ -1249,7 +1247,11 @@ class MultiQuery(object):
         self.queries = {}
 
     def add_query(self, query, bailiwick_map, default_bailiwick):
-        if not (self.qname == query.qname and self.rdtype == query.rdtype and self.rdclass == query.rdclass):
+        if (
+            self.qname != query.qname
+            or self.rdtype != query.rdtype
+            or self.rdclass != query.rdclass
+        ):
             raise ValueError('DNS query information must be the same as that to which query is being joined.')
 
         edns_options_str = b''
@@ -1271,16 +1273,13 @@ class MultiQuery(object):
         return query
 
     def is_nxdomain_all(self):
-        for params in self.queries:
-            if not self.queries[params].is_nxdomain_all():
-                return False
-        return True
+        return all(self.queries[params].is_nxdomain_all() for params in self.queries)
 
     def is_valid_complete_authoritative_response_any(self):
-        for params in self.queries:
-            if self.queries[params].is_valid_complete_authoritative_response_any():
-                return True
-        return False
+        return any(
+            self.queries[params].is_valid_complete_authoritative_response_any()
+            for params in self.queries
+        )
 
 class MultiQueryAggregateDNSResponse(MultiQuery, AggregateDNSResponse):
     def __init__(self, qname, rdtype, rdclass):
@@ -1311,10 +1310,7 @@ class ExecutableDNSQuery(DNSQuery):
                 flags, edns, edns_max_udp_payload, edns_flags, edns_options, tcp)
 
         if not isinstance(servers, set):
-            if isinstance(servers, (list, tuple)):
-                servers = set(servers)
-            else:
-                servers = set([servers])
+            servers = set(servers) if isinstance(servers, (list, tuple)) else {servers}
         if not servers:
             raise ValueError("At least one server must be specified for an ExecutableDNSQuery")
 
@@ -1379,15 +1375,11 @@ class ExecutableDNSQuery(DNSQuery):
         request.find_rrset(request.question, self.qname, self.rdclass, self.rdtype, create=True, force_unique=True)
         request.use_edns(self.edns, self.edns_flags, self.edns_max_udp_payload, options=edns_options)
 
-        if server.version == 6:
-            client = self.client_ipv6
-        else:
-            client = self.client_ipv4
-
+        client = self.client_ipv6 if server.version == 6 else self.client_ipv4
         params = { 'tcp': self.tcp, 'sport': None, 'wait': 0, 'timeout': self.query_timeout }
 
         response_handlers = [RetryOnNetworkErrorHandler(3).build()] + [h.build() for h in self.response_handlers] + \
-            [RetryOnTimeoutHandler().build(), DefaultAcceptHandler().build()]
+                [RetryOnTimeoutHandler().build(), DefaultAcceptHandler().build()]
 
         if self.max_attempts is not None:
             response_handlers.append(MaxTimeoutsHandler(self.max_attempts).build())
