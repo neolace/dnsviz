@@ -142,10 +142,14 @@ def test_pygraphviz():
             major = int(major)
             minor = int(re.sub(r'(\d+)[^\d].*', r'\1', minor))
             if (major, minor) < (1,3):
-                logger.error('''pygraphviz version >= 1.3 is required, but version %s is installed.''' % release.version)
+                logger.error(
+                    f'''pygraphviz version >= 1.3 is required, but version {release.version} is installed.'''
+                )
                 sys.exit(2)
         except ValueError:
-            logger.error('''pygraphviz version >= 1.3 is required, but version %s is installed.''' % release.version)
+            logger.error(
+                f'''pygraphviz version >= 1.3 is required, but version {release.version} is installed.'''
+            )
             sys.exit(2)
     except ImportError:
         logger.error('''pygraphviz is required, but not installed.''')
@@ -269,7 +273,7 @@ class GrokArgHelper:
             try:
                 ints.append(int(i.strip()))
             except ValueError:
-                raise argparse.ArgumentTypeError('Invalid integer: %s' % (i))
+                raise argparse.ArgumentTypeError(f'Invalid integer: {i}')
         return ints
 
     @classmethod
@@ -277,7 +281,7 @@ class GrokArgHelper:
         try:
             return dns.name.from_text(arg)
         except dns.exception.DNSException:
-            raise argparse.ArgumentTypeError('Invalid domain name: "%s"' % arg)
+            raise argparse.ArgumentTypeError(f'Invalid domain name: "{arg}"')
 
     def check_args(self):
         if self.args.names_file and self.args.domain_name:
@@ -339,8 +343,9 @@ class GrokArgHelper:
             try:
                 self.trusted_keys.extend(get_trusted_keys(tk_str))
             except dns.exception.DNSException:
-                raise argparse.ArgumentTypeError('There was an error parsing the trusted keys file: "%s"' % \
-                        self._arg_mapping)
+                raise argparse.ArgumentTypeError(
+                    f'There was an error parsing the trusted keys file: "{self._arg_mapping}"'
+                )
 
     def update_trusted_key_info(self):
         if self.args.trusted_keys_file is None:
@@ -356,15 +361,21 @@ class GrokArgHelper:
         try:
             self.analysis_structured = json.loads(analysis_str)
         except ValueError:
-            raise AnalysisInputError('There was an error parsing the JSON input: "%s"' % self.args.input_file.name)
+            raise AnalysisInputError(
+                f'There was an error parsing the JSON input: "{self.args.input_file.name}"'
+            )
 
         # check version
         if '_meta._dnsviz.' not in self.analysis_structured or 'version' not in self.analysis_structured['_meta._dnsviz.']:
-            raise AnalysisInputError('No version information in JSON input: "%s"' % self.args.input_file.name)
+            raise AnalysisInputError(
+                f'No version information in JSON input: "{self.args.input_file.name}"'
+            )
         try:
             major_vers, minor_vers = [int(x) for x in str(self.analysis_structured['_meta._dnsviz.']['version']).split('.', 1)]
         except ValueError:
-            raise AnalysisInputError('Version of JSON input is invalid: %s' % self.analysis_structured['_meta._dnsviz.']['version'])
+            raise AnalysisInputError(
+                f"Version of JSON input is invalid: {self.analysis_structured['_meta._dnsviz.']['version']}"
+            )
         # ensure major version is a match and minor version is no greater
         # than the current minor version
         curr_major_vers, curr_minor_vers = [int(x) for x in str(DNS_RAW_VERSION).split('.', 1)]
@@ -398,16 +409,16 @@ class GrokArgHelper:
             try:
                 name = dns.name.from_text(name)
             except UnicodeDecodeError as e:
-                self._logger.error('%s: "%s"' % (e, name))
+                self._logger.error(f'{e}: "{name}"')
             except dns.exception.DNSException:
-                self._logger.error('The domain name was invalid: "%s"' % name)
+                self._logger.error(f'The domain name was invalid: "{name}"')
             else:
                 if name not in self.names:
                     self.names[name] = None
 
 def build_helper(logger, cmd, subcmd):
     arghelper = GrokArgHelper(logger)
-    arghelper.build_parser('%s %s' % (cmd, subcmd))
+    arghelper.build_parser(f'{cmd} {subcmd}')
     return arghelper
 
 def main(argv):
@@ -427,8 +438,7 @@ def main(argv):
         except argparse.ArgumentTypeError as e:
             arghelper.parser.error(str(e))
         except AnalysisInputError as e:
-            s = str(e)
-            if s:
+            if s := str(e):
                 logger.error(s)
             sys.exit(3)
 
@@ -446,7 +456,9 @@ def main(argv):
         for name in arghelper.names:
             name_str = lb2s(name.canonicalize().to_text())
             if name_str not in arghelper.analysis_structured or arghelper.analysis_structured[name_str].get('stub', True):
-                logger.error('The analysis of "%s" was not found in the input.' % lb2s(name.to_text()))
+                logger.error(
+                    f'The analysis of "{lb2s(name.to_text())}" was not found in the input.'
+                )
                 continue
             name_obj = OfflineDomainNameAnalysis.deserialize(name, arghelper.analysis_structured, cache, strict_cookies=arghelper.args.enforce_cookies, allow_private=arghelper.args.allow_private)
             name_objs.append(name_obj)

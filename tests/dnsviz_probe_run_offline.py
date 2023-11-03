@@ -101,12 +101,23 @@ class DNSProbeRunOfflineTestCase(unittest.TestCase):
 
     def test_dnsviz_probe_auth_local(self):
         with io.open(self.output.name, 'wb') as fh:
-            self.assertEqual(subprocess.call(
-                [self.dnsviz_bin, 'probe', '-d', '0', '-A',
-                    '-x' 'example.com:%s' % EXAMPLE_COM_SIGNED,
-                    '-N' 'example.com:%s' % EXAMPLE_COM_DELEGATION,
-                    '-D' 'example.com:%s' % EXAMPLE_COM_DELEGATION,
-                    'example.com'], stdout=fh), 0)
+            self.assertEqual(
+                subprocess.call(
+                    [
+                        self.dnsviz_bin,
+                        'probe',
+                        '-d',
+                        '0',
+                        '-A',
+                        f'-xexample.com:{EXAMPLE_COM_SIGNED}',
+                        f'-Nexample.com:{EXAMPLE_COM_DELEGATION}',
+                        f'-Dexample.com:{EXAMPLE_COM_DELEGATION}',
+                        'example.com',
+                    ],
+                    stdout=fh,
+                ),
+                0,
+            )
 
 if __name__ == '__main__':
     unittest.main()

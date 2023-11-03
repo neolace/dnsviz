@@ -61,7 +61,9 @@ class DomainNameAnalysisError(object):
             try:
                 self.template_kwargs[param] = kwargs[param]
             except KeyError:
-                raise TypeError('The "%s" keyword argument is required for instantiation.' % param)
+                raise TypeError(
+                    f'The "{param}" keyword argument is required for instantiation.'
+                )
 
     def __hash__(self):
         return id(self)
@@ -96,11 +98,10 @@ class DomainNameAnalysisError(object):
         for n, v in self.template_kwargs.items():
             if isinstance(v, int):
                 template_kwargs_escaped[n] = v
+            elif isinstance(v, str):
+                template_kwargs_escaped[n] = escape(v)
             else:
-                if isinstance(v, str):
-                    template_kwargs_escaped[n] = escape(v)
-                else:
-                    template_kwargs_escaped[n] = escape(str(v))
+                template_kwargs_escaped[n] = escape(str(v))
         return description_template_escaped % template_kwargs_escaped
 
     def add_server_client(self, server, client, response):
@@ -122,17 +123,12 @@ class DomainNameAnalysisError(object):
     def serialize(self, consolidate_clients=False, html_format=False):
         d = OrderedDict()
 
-        if html_format:
-            d['description'] = self.html_description
-        else:
-            d['description'] = self.description
-
+        d['description'] = self.html_description if html_format else self.description
         d['code'] = self.code
         if self.servers_clients:
             servers = tuple_to_dict(self.servers_clients)
             if consolidate_clients:
-                servers = list(servers)
-                servers.sort()
+                servers = sorted(servers)
             d['servers'] = servers
 
             tags = set()
@@ -148,9 +144,7 @@ class DomainNameAnalysisError(object):
                             tag = response.initial_query_tag()
                         tags.add(tag)
             if tags:
-                d['query_options'] = list(tags)
-                d['query_options'].sort()
-
+                d['query_options'] = sorted(tags)
         return d
 
     @classmethod
@@ -972,7 +966,9 @@ class ExistingNSECError(NSECError):
 
     def __init__(self, **kwargs):
         super(ExistingNSECError, self).__init__(**kwargs)
-        queries_text = ['%s/%s' % (name, rdtype) for name, rdtype in self.template_kwargs['queries']]
+        queries_text = [
+            f'{name}/{rdtype}' for name, rdtype in self.template_kwargs['queries']
+        ]
         self.template_kwargs['queries_text'] = ', '.join(queries_text)
 
 class ExistingCovered(ExistingNSECError):
@@ -1106,10 +1102,7 @@ class InvalidResponseError(ResponseError):
 
     def __init__(self, *args, **kwargs):
         super(ResponseError, self).__init__(**kwargs)
-        if self.template_kwargs['tcp']:
-            self.template_kwargs['proto'] = 'TCP'
-        else:
-            self.template_kwargs['proto'] = 'UDP'
+        self.template_kwargs['proto'] = 'TCP' if self.template_kwargs['tcp'] else 'UDP'
 
 class NetworkError(InvalidResponseError):
     '''
@@ -1132,13 +1125,21 @@ class NetworkError(InvalidResponseError):
     def __init__(self, *args, **kwargs):
         super(NetworkError, self).__init__(**kwargs)
         if self.template_kwargs['errno'] == 'ECONNRESET':
-            self.template_kwargs['description'] = 'The %s connection was interrupted (%s).' % (self.template_kwargs['proto'], self.template_kwargs['errno'])
+            self.template_kwargs[
+                'description'
+            ] = f"The {self.template_kwargs['proto']} connection was interrupted ({self.template_kwargs['errno']})."
         elif self.template_kwargs['errno'] == 'ECONNREFUSED':
-            self.template_kwargs['description'] = 'The %s connection was refused (%s).' % (self.template_kwargs['proto'], self.template_kwargs['errno'])
+            self.template_kwargs[
+                'description'
+            ] = f"The {self.template_kwargs['proto']} connection was refused ({self.template_kwargs['errno']})."
         elif self.template_kwargs['errno'] == 'EHOSTUNREACH':
-            self.template_kwargs['description'] = 'The server was not reachable over %s (%s).' % (self.template_kwargs['proto'], self.template_kwargs['errno'])
+            self.template_kwargs[
+                'description'
+            ] = f"The server was not reachable over {self.template_kwargs['proto']} ({self.template_kwargs['errno']})."
         else:
-            self.template_kwargs['description'] = 'There was an error communicating with the server over %s (%s).' % (self.template_kwargs['proto'], self.template_kwargs['errno'])
+            self.template_kwargs[
+                'description'
+            ] = f"There was an error communicating with the server over {self.template_kwargs['proto']} ({self.template_kwargs['errno']})."
 
 class FormError(InvalidResponseError):
     '''
@@ -1177,7 +1178,9 @@ class UnknownResponseError(InvalidResponseError):
 
     def __init__(self, *args, **kwargs):
         super(UnknownResponseError, self).__init__(**kwargs)
-        self.template_kwargs['description'] = "An invalid response was received from the server over %s" % (self.template_kwargs['proto'])
+        self.template_kwargs[
+            'description'
+        ] = f"An invalid response was received from the server over {self.template_kwargs['proto']}"
 
 class InvalidRcode(InvalidResponseError):
     '''
@@ -1242,7 +1245,9 @@ class ResponseErrorWithCondition(ResponseError):
         super(ResponseErrorWithCondition, self).__init__(**kwargs)
         self.template_kwargs['response_error_description'] = self.template_kwargs['response_error'].description[:-1]
         if self.template_kwargs['query_specific']:
-            self.template_kwargs['query_specific_text'] = ' (however, this server appeared to respond legitimately to other queries with %s)' % (self.precondition % self.template_kwargs)
+            self.template_kwargs[
+                'query_specific_text'
+            ] = f' (however, this server appeared to respond legitimately to other queries with {self.precondition % self.template_kwargs})'
         else:
             self.template_kwargs['query_specific_text'] = ''
 
@@ -1261,7 +1266,9 @@ class ResponseErrorWithRequestFlag(ResponseErrorWithCondition):
     def __init__(self, *args, **kwargs):
         self.precondition = 'the %(flag)s flag set'
         super(ResponseErrorWithRequestFlag, self).__init__(**kwargs)
-        self.template_kwargs['change'] = 'the %s flag was cleared' % (self.template_kwargs['flag'])
+        self.template_kwargs[
+            'change'
+        ] = f"the {self.template_kwargs['flag']} flag was cleared"
 
 class ResponseErrorWithoutRequestFlag(ResponseErrorWithCondition):
     '''
@@ -1278,7 +1285,9 @@ class ResponseErrorWithoutRequestFlag(ResponseErrorWithCondition):
     def __init__(self, *args, **kwargs):
         self.precondition = 'the %(flag)s flag cleared'
         super(ResponseErrorWithoutRequestFlag, self).__init__(**kwargs)
-        self.template_kwargs['change'] = 'the %s flag was set' % (self.template_kwargs['flag'])
+        self.template_kwargs[
+            'change'
+        ] = f"the {self.template_kwargs['flag']} flag was set"
 
 class ResponseErrorWithEDNS(ResponseErrorWithCondition):
     '''
@@ -1329,7 +1338,9 @@ class ResponseErrorWithEDNSFlag(ResponseErrorWithCondition):
     def __init__(self, *args, **kwargs):
         self.precondition = 'the %(flag)s EDNS flag set'
         super(ResponseErrorWithEDNSFlag, self).__init__(**kwargs)
-        self.template_kwargs['change'] = 'the %s EDNS flag was cleared' % (self.template_kwargs['flag'])
+        self.template_kwargs[
+            'change'
+        ] = f"the {self.template_kwargs['flag']} EDNS flag was cleared"
 
 class ResponseErrorWithoutEDNSFlag(ResponseErrorWithCondition):
     '''
@@ -1346,7 +1357,9 @@ class ResponseErrorWithoutEDNSFlag(ResponseErrorWithCondition):
     def __init__(self, *args, **kwargs):
         self.precondition = 'the %(flag)s EDNS flag cleared'
         super(ResponseErrorWithoutEDNSFlag, self).__init__(**kwargs)
-        self.template_kwargs['change'] = 'the %s EDNS flag was set' % (self.template_kwargs['flag'])
+        self.template_kwargs[
+            'change'
+        ] = f"the {self.template_kwargs['flag']} EDNS flag was set"
 
 class ResponseErrorWithEDNSOption(ResponseErrorWithCondition):
     '''
@@ -1363,7 +1376,9 @@ class ResponseErrorWithEDNSOption(ResponseErrorWithCondition):
     def __init__(self, *args, **kwargs):
         self.precondition = 'the %(option)s EDNS option present'
         super(ResponseErrorWithEDNSOption, self).__init__(**kwargs)
-        self.template_kwargs['change'] = 'the %s EDNS option was removed' % (self.template_kwargs['option'])
+        self.template_kwargs[
+            'change'
+        ] = f"the {self.template_kwargs['option']} EDNS option was removed"
 
 class ResponseErrorWithoutEDNSOption(ResponseErrorWithCondition):
     '''
@@ -1380,7 +1395,9 @@ class ResponseErrorWithoutEDNSOption(ResponseErrorWithCondition):
     def __init__(self, *args, **kwargs):
         self.precondition = 'without the %(option)s EDNS option'
         super(ResponseErrorWithoutEDNSOption, self).__init__(**kwargs)
-        self.template_kwargs['change'] = 'the %s EDNS option was added' % (self.template_kwargs['option'])
+        self.template_kwargs[
+            'change'
+        ] = f"the {self.template_kwargs['option']} EDNS option was added"
 
 class EDNSError(ResponseError):
     pass

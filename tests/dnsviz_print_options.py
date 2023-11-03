@@ -64,8 +64,8 @@ class DNSVizPrintOptionsTestCase(unittest.TestCase):
         int_list2 = [1]
         empty_list = []
 
-        int_set1 = set([1,2,3,4,5])
-        int_set2 = set([1])
+        int_set1 = {1, 2, 3, 4, 5}
+        int_set2 = {1}
         empty_set = set([])
 
         self.assertEqual(PrintArgHelper.comma_separated_ints(arg1), int_list1)

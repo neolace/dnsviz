@@ -69,7 +69,7 @@ def finish_graph(G, name_objs, rdtypes, trusted_keys, supported_algs, filename):
     try:
         fh = io.open(filename, 'w', encoding='utf-8')
     except IOError as e:
-        logger.error('%s: "%s"' % (e.strerror, filename))
+        logger.error(f'{e.strerror}: "{filename}"')
         sys.exit(3)
 
     show_colors = fh.isatty() and os.environ.get('TERM', 'dumb') != 'dumb'
@@ -134,14 +134,13 @@ STATUS_MAP = {
 }
 
 def _errors_warnings_full(warnings, errors, indent, show_color):
-    # display status, errors, and warnings
-    s = ''
-    for error in errors:
-        if show_color:
-            s += '%s%sE:%s%s\n' % (indent, TERM_COLOR_MAP['ERROR'], error, TERM_COLOR_MAP['RESET'])
-        else:
-            s += '%sE:%s\n' % (indent, error)
-
+    s = ''.join(
+        '%s%sE:%s%s\n'
+        % (indent, TERM_COLOR_MAP['ERROR'], error, TERM_COLOR_MAP['RESET'])
+        if show_color
+        else '%sE:%s\n' % (indent, error)
+        for error in errors
+    )
     for warning in warnings:
         if show_color:
             s += '%s%sW:%s%s\n' % (indent, TERM_COLOR_MAP['WARNING'], warning, TERM_COLOR_MAP['RESET'])
@@ -155,15 +154,15 @@ def _errors_warnings_str(status, warnings, errors, show_color):
     error_str = ''
     if errors:
         if show_color:
-            error_str = '%s%s%s' % (TERM_COLOR_MAP['ERROR'], STATUS_MAP['ERROR'], TERM_COLOR_MAP[status])
+            error_str = f"{TERM_COLOR_MAP['ERROR']}{STATUS_MAP['ERROR']}{TERM_COLOR_MAP[status]}"
         else:
             error_str = STATUS_MAP['ERROR']
     elif warnings:
         if show_color:
-            error_str = '%s%s%s' % (TERM_COLOR_MAP['WARNING'], STATUS_MAP['WARNING'], TERM_COLOR_MAP[status])
+            error_str = f"{TERM_COLOR_MAP['WARNING']}{STATUS_MAP['WARNING']}{TERM_COLOR_MAP[status]}"
         else:
             error_str = STATUS_MAP['WARNING']
-    return '[%s%s]' % (STATUS_MAP[status], error_str)
+    return f'[{STATUS_MAP[status]}{error_str}]'
 
 def _textualize_status_output_response(rdtype_str, status, warnings, errors, rdata, children, depth, show_color):
     s = ''
@@ -172,24 +171,14 @@ def _textualize_status_output_response(rdtype_str, status, warnings, errors, rda
     response_rdata = '%(rdata)s%(color_reset)s%(status_color_rdata)s%(status_rdata)s%(color_reset)s'
     join_str_template = '%(status_color)s, '
 
-    params = {}
-    params['status_color'] = ''
-    params['status_color_rdata'] = ''
-
-    if show_color:
-        params['color_reset'] = TERM_COLOR_MAP['RESET']
-    else:
-        params['color_reset'] = ''
-
-    # display status, errors, and warnings
-    params['status'] = _errors_warnings_str(status, warnings, errors, show_color)
-
+    params = {
+        'status_color': '',
+        'status_color_rdata': '',
+        'color_reset': TERM_COLOR_MAP['RESET'] if show_color else '',
+        'status': _errors_warnings_str(status, warnings, errors, show_color),
+    }
     # indent based on the presence of errors and warnings
-    if errors or warnings:
-        params['preindent'] = ''
-    else:
-        params['preindent'] = ' '
-
+    params['preindent'] = '' if errors or warnings else ' '
     params['rdtype'] = rdtype_str
     params['indent'] = '  '*depth
     if show_color:
@@ -205,7 +194,9 @@ def _textualize_status_output_response(rdtype_str, status, warnings, errors, rda
         if substatus is not None:
             if show_color:
                 params['status_color_rdata'] = TERM_COLOR_MAP[substatus]
-            params['status_rdata'] = ' ' + _errors_warnings_str(substatus, subwarnings, suberrors, show_color)
+            params[
+                'status_rdata'
+            ] = f' {_errors_warnings_str(substatus, subwarnings, suberrors, show_color)}'
         else:
             params['status_color_rdata'] = ''
             params['status_rdata'] = ''
@@ -229,15 +220,11 @@ def _textualize_status_output_name(name, zone_status, zone_warnings, zone_errors
 
     name_template = '%(status_color)s%(name)s%(color_reset)s%(status_color_rdata)s%(status_rdata)s%(color_reset)s\n'
 
-    params = {}
-    params['status_color'] = ''
-    params['status_color_rdata'] = ''
-
-    if show_color:
-        params['color_reset'] = TERM_COLOR_MAP['RESET']
-    else:
-        params['color_reset'] = ''
-
+    params = {
+        'status_color': '',
+        'status_color_rdata': '',
+        'color_reset': TERM_COLOR_MAP['RESET'] if show_color else '',
+    }
     warnings_all = zone_warnings + delegation_warnings
     errors_all = zone_errors + delegation_errors
 
@@ -247,11 +234,15 @@ def _textualize_status_output_name(name, zone_status, zone_warnings, zone_errors
         params['status_color'] = TERM_COLOR_MAP['BOLD']
         params['color_reset'] = TERM_COLOR_MAP['RESET']
     if zone_status is not None:
-        params['status_rdata'] += ' ' + _errors_warnings_str(zone_status, zone_warnings, zone_errors, show_color)
+        params[
+            'status_rdata'
+        ] += f' {_errors_warnings_str(zone_status, zone_warnings, zone_errors, show_color)}'
         if show_color:
             params['status_color_rdata'] = TERM_COLOR_MAP[zone_status]
     if delegation_status is not None:
-        params['status_rdata'] += ' ' + _errors_warnings_str(delegation_status, delegation_warnings, delegation_errors, show_color)
+        params[
+            'status_rdata'
+        ] += f' {_errors_warnings_str(delegation_status, delegation_warnings, delegation_errors, show_color)}'
         if show_color:
             params['status_color_rdata'] = TERM_COLOR_MAP[delegation_status]
     s += name_template % params
@@ -264,11 +255,20 @@ def _textualize_status_output_name(name, zone_status, zone_warnings, zone_errors
     return s
 
 def textualize_status_output(names, show_color):
-    s = ''
-    for name, zone_status, zone_warnings, zone_errors, delegation_status, delegation_warnings, delegation_errors, responses in names:
-        s += _textualize_status_output_name(name, zone_status, zone_warnings, zone_errors, delegation_status, delegation_warnings, delegation_errors, responses, show_color)
-
-    return s
+    return ''.join(
+        _textualize_status_output_name(
+            name,
+            zone_status,
+            zone_warnings,
+            zone_errors,
+            delegation_status,
+            delegation_warnings,
+            delegation_errors,
+            responses,
+            show_color,
+        )
+        for name, zone_status, zone_warnings, zone_errors, delegation_status, delegation_warnings, delegation_errors, responses in names
+    )
 
 def test_pygraphviz():
     try:
@@ -285,10 +285,14 @@ def test_pygraphviz():
             major = int(major)
             minor = int(re.sub(r'(\d+)[^\d].*', r'\1', minor))
             if (major, minor) < (1,3):
-                logger.error('''pygraphviz version >= 1.3 is required, but version %s is installed.''' % version)
+                logger.error(
+                    f'''pygraphviz version >= 1.3 is required, but version {version} is installed.'''
+                )
                 sys.exit(2)
         except ValueError:
-            logger.error('''pygraphviz version >= 1.3 is required, but version %s is installed.''' % version)
+            logger.error(
+                f'''pygraphviz version >= 1.3 is required, but version {version} is installed.'''
+            )
             sys.exit(2)
     except ImportError:
         logger.error('''pygraphviz is required, but not installed.''')
@@ -407,7 +411,7 @@ class PrintArgHelper:
             try:
                 rdtypes.append(dns.rdatatype.from_text(r.strip()))
             except dns.rdatatype.UnknownRdatatype:
-                raise argparse.ArgumentTypeError('Invalid resource record type: %s' % (r))
+                raise argparse.ArgumentTypeError(f'Invalid resource record type: {r}')
         return rdtypes
 
     @classmethod
@@ -424,7 +428,7 @@ class PrintArgHelper:
             try:
                 ints.append(int(i.strip()))
             except ValueError:
-                raise argparse.ArgumentTypeError('Invalid integer: %s' % (i))
+                raise argparse.ArgumentTypeError(f'Invalid integer: {i}')
         return ints
 
     @classmethod
@@ -432,7 +436,7 @@ class PrintArgHelper:
         try:
             return dns.name.from_text(arg)
         except dns.exception.DNSException:
-            raise argparse.ArgumentTypeError('Invalid domain name: "%s"' % arg)
+            raise argparse.ArgumentTypeError(f'Invalid domain name: "{arg}"')
 
     def check_args(self):
         if self.args.names_file and self.args.domain_name:
@@ -487,8 +491,9 @@ class PrintArgHelper:
             try:
                 self.trusted_keys.extend(get_trusted_keys(tk_str))
             except dns.exception.DNSException:
-                raise argparse.ArgumentTypeError('There was an error parsing the trusted keys file: "%s"' % \
-                        self._arg_mapping)
+                raise argparse.ArgumentTypeError(
+                    f'There was an error parsing the trusted keys file: "{self._arg_mapping}"'
+                )
 
     def update_trusted_key_info(self, latest_analysis_date):
         if self.args.trusted_keys_file is None:
@@ -504,15 +509,21 @@ class PrintArgHelper:
         try:
             self.analysis_structured = json.loads(analysis_str)
         except ValueError:
-            raise AnalysisInputError('There was an error parsing the JSON input: "%s"' % self.args.input_file.name)
+            raise AnalysisInputError(
+                f'There was an error parsing the JSON input: "{self.args.input_file.name}"'
+            )
 
         # check version
         if '_meta._dnsviz.' not in self.analysis_structured or 'version' not in self.analysis_structured['_meta._dnsviz.']:
-            raise AnalysisInputError('No version information in JSON input: "%s"' % self.args.input_file.name)
+            raise AnalysisInputError(
+                f'No version information in JSON input: "{self.args.input_file.name}"'
+            )
         try:
             major_vers, minor_vers = [int(x) for x in str(self.analysis_structured['_meta._dnsviz.']['version']).split('.', 1)]
         except ValueError:
-            raise AnalysisInputError('Version of JSON input is invalid: %s' % self.analysis_structured['_meta._dnsviz.']['version'])
+            raise AnalysisInputError(
+                f"Version of JSON input is invalid: {self.analysis_structured['_meta._dnsviz.']['version']}"
+            )
         # ensure major version is a match and minor version is no greater
         # than the current minor version
         curr_major_vers, curr_minor_vers = [int(x) for x in str(DNS_RAW_VERSION).split('.', 1)]
@@ -546,16 +557,16 @@ class PrintArgHelper:
             try:
                 name = dns.name.from_text(name)
             except UnicodeDecodeError as e:
-                self._logger.error('%s: "%s"' % (e, name))
+                self._logger.error(f'{e}: "{name}"')
             except dns.exception.DNSException:
-                self._logger.error('The domain name was invalid: "%s"' % name)
+                self._logger.error(f'The domain name was invalid: "{name}"')
             else:
                 if name not in self.names:
                     self.names[name] = None
 
 def build_helper(logger, cmd, subcmd):
     arghelper = PrintArgHelper(logger)
-    arghelper.build_parser('%s %s' % (cmd, subcmd))
+    arghelper.build_parser(f'{cmd} {subcmd}')
     return arghelper
 
 def main(argv):
@@ -575,8 +586,7 @@ def main(argv):
         except argparse.ArgumentTypeError as e:
             arghelper.parser.error(str(e))
         except AnalysisInputError as e:
-            s = str(e)
-            if s:
+            if s := str(e):
                 logger.error(s)
             sys.exit(3)
 
@@ -586,7 +596,9 @@ def main(argv):
         for name in arghelper.names:
             name_str = lb2s(name.canonicalize().to_text())
             if name_str not in arghelper.analysis_structured or arghelper.analysis_structured[name_str].get('stub', True):
-                logger.error('The analysis of "%s" was not found in the input.' % lb2s(name.to_text()))
+                logger.error(
+                    f'The analysis of "{lb2s(name.to_text())}" was not found in the input.'
+                )
                 continue
             name_obj = TTLAgnosticOfflineDomainNameAnalysis.deserialize(name, arghelper.analysis_structured, cache, strict_cookies=arghelper.args.enforce_cookies, allow_private=arghelper.args.allow_private)
             name_objs.append(name_obj)
@@ -608,17 +620,16 @@ def main(argv):
                     # exceptions
                     if name_obj.is_zone() and rdtype in (dns.rdatatype.DNSKEY, dns.rdatatype.DS, dns.rdatatype.DLV):
                         continue
-                else:
-                    # if rdtypes was specified, then only graph rdtypes that
-                    # were specified
-                    if qname != name_obj.name or rdtype not in arghelper.args.rr_types:
-                        continue
+                elif qname != name_obj.name or rdtype not in arghelper.args.rr_types:
+                    continue
                 G.graph_rrset_auth(name_obj, qname, rdtype)
 
             if arghelper.args.rr_types is not None:
                 for rdtype in arghelper.args.rr_types:
                     if (name_obj.name, rdtype) not in name_obj.queries:
-                        logger.error('No query for "%s/%s" was included in the analysis.' % (lb2s(name_obj.name.to_text()), dns.rdatatype.to_text(rdtype)))
+                        logger.error(
+                            f'No query for "{lb2s(name_obj.name.to_text())}/{dns.rdatatype.to_text(rdtype)}" was included in the analysis.'
+                        )
 
             if arghelper.args.derive_filename:
                 if name_obj.name == dns.name.root:
@@ -626,7 +637,14 @@ def main(argv):
                 else:
                     name = lb2s(name_obj.name.canonicalize().to_text()).rstrip('.')
                     name = name.replace(os.sep, '--')
-                finish_graph(G, [name_obj], arghelper.args.rr_types, arghelper.trusted_keys, arghelper.args.algorithms, '%s.txt' % name)
+                finish_graph(
+                    G,
+                    [name_obj],
+                    arghelper.args.rr_types,
+                    arghelper.trusted_keys,
+                    arghelper.args.algorithms,
+                    f'{name}.txt',
+                )
                 G = DNSAuthGraph()
 
         if not arghelper.args.derive_filename:

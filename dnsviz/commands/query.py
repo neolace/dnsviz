@@ -41,8 +41,7 @@ def _get_nameservers_for_name(addr):
     except socket.gaierror:
         sys.stderr.write('Unable to resolve "%s"\n' % addr)
     else:
-        for item in addrinfo:
-            nameservers.append(IPAddr(item[4][0]))
+        nameservers.extend(IPAddr(item[4][0]) for item in addrinfo)
     return nameservers
 
 def usage(err=None):
@@ -118,21 +117,14 @@ class DVCommandLineQuery:
         self.nameservers = nameservers + processed_nameservers
 
     def _get_rdtype(self, options):
-        if self.rdtype is None:
-            return options['rdtype']
-        else:
-            return self.rdtype
+        return options['rdtype'] if self.rdtype is None else self.rdtype
 
     def _get_rdclass(self, options):
-        if self.rdclass is None:
-            return options['rdclass']
-        else:
-            return self.rdclass
+        return options['rdclass'] if self.rdclass is None else self.rdclass
 
     def query_and_display(self, options):
-        dnsget_args = ['dnsviz', 'probe']
         dnsviz_args = ['dnsviz', 'print']
-        dnsget_args.extend(['-d', '1', '-a', '.'])
+        dnsget_args = ['dnsviz', 'probe', '-d', '1', '-a', '.']
         if options['use_ipv4'] and not options['use_ipv6']:
             dnsget_args.append('-4')
         if options['use_ipv6'] and not options['use_ipv4']:
@@ -144,11 +136,10 @@ class DVCommandLineQuery:
         dnsget_args.extend(['-R', dns.rdatatype.to_text(self._get_rdtype(options))])
         if self.trace:
             dnsget_args.append('-A')
+        elif self.nameservers[0].version == 6:
+            dnsget_args.extend(['-s', f'[{self.nameservers[0]}]'])
         else:
-            if self.nameservers[0].version == 6:
-                dnsget_args.extend(['-s', '[%s]' % (self.nameservers[0])])
-            else:
-                dnsget_args.extend(['-s', self.nameservers[0]])
+            dnsget_args.extend(['-s', self.nameservers[0]])
         dnsget_args.append(self.qname)
 
         if self.trusted_keys_file is not None:
@@ -222,12 +213,11 @@ class DVCommandLine:
             else:
                 if not has_arg:
                     return None
-                else:
-                    self.arg_index += 1
-                    if self.arg_index >= len(self.args):
-                        sys.stderr.write('"%s" option requires an argument\n' % self.args[self.arg_index - 1])
-                        sys.exit(1)
-                    return self.args[self.arg_index]
+                self.arg_index += 1
+                if self.arg_index >= len(self.args):
+                    sys.stderr.write('"%s" option requires an argument\n' % self.args[self.arg_index - 1])
+                    sys.exit(1)
+                return self.args[self.arg_index]
         finally:
             self.arg_index += 1
 
@@ -313,11 +303,7 @@ class DVCommandLine:
                 sys.stderr.write('Invalid IP address: "%s"\n' % arg)
                 sys.exit(1)
 
-            if addr.version == 6:
-                family = socket.AF_INET6
-            else:
-                family = socket.AF_INET
-
+            family = socket.AF_INET6 if addr.version == 6 else socket.AF_INET
             try:
                 s = socket.socket(family)
                 s.bind((addr, 0))
@@ -369,30 +355,21 @@ class DVCommandLine:
             if self.args[self.arg_index][0] == '@':
                 self._add_server_to_options(query)
 
-            # reverse lookup
             elif self.args[self.arg_index].startswith('-x'):
                 query = self._add_reverse_query()
                 self.queries.append(query)
 
-            # forward lookup (with -q)
             elif self.args[self.arg_index].startswith('-q'):
                 query = self._add_qname_from_opt()
                 self.queries.append(query)
 
-            # options
             elif self.args[self.arg_index][0] == '-':
                 self._add_option()
 
-            # query options
             elif self.args[self.arg_index][0] == '+':
                 self._add_query_option(query)
 
-            # global query class/type
-            elif query is None and self._add_default_option():
-                pass
-
-            # name to be queried
-            else:
+            elif query is not None or not self._add_default_option():
                 query = self._add_qname()
                 self.queries.append(query)
 
