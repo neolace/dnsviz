@@ -136,20 +136,46 @@ class DNSGraphRunTestCase(unittest.TestCase):
 
         for fmt in ('dot', 'png', 'svg', 'html'):
             with io.open(self.output.name, 'wb') as fh:
-                self.assertEqual(subprocess.call([self.dnsviz_bin, 'graph', '-r', self.example_auth_out.name, '-o', 'all.'+fmt], cwd=self.run_cwd, stdout=fh), 0)
-                self.assertTrue(os.path.exists(os.path.join(self.run_cwd, 'all.'+fmt)))
-                self.assertFalse(os.path.exists(os.path.join(self.run_cwd, 'example.com.' + fmt)))
-                self.assertFalse(os.path.exists(os.path.join(self.run_cwd, 'example.net.' + fmt)))
+                self.assertEqual(
+                    subprocess.call(
+                        [
+                            self.dnsviz_bin,
+                            'graph',
+                            '-r',
+                            self.example_auth_out.name,
+                            '-o',
+                            f'all.{fmt}',
+                        ],
+                        cwd=self.run_cwd,
+                        stdout=fh,
+                    ),
+                    0,
+                )
+                self.assertTrue(os.path.exists(os.path.join(self.run_cwd, f'all.{fmt}')))
+                self.assertFalse(
+                    os.path.exists(
+                        os.path.join(self.run_cwd, f'example.com.{fmt}')
+                    )
+                )
+                self.assertFalse(
+                    os.path.exists(
+                        os.path.join(self.run_cwd, f'example.net.{fmt}')
+                    )
+                )
 
-                with io.open(os.path.join(self.run_cwd, 'all.' + fmt), 'rb') as fh:
+                with io.open(os.path.join(self.run_cwd, f'all.{fmt}'), 'rb') as fh:
                     first_bytes = fh.read(len(magic_codes_mapping[fmt]))
                     self.assertEqual(first_bytes, magic_codes_mapping[fmt])
 
             self.assertEqual(subprocess.call([self.dnsviz_bin, 'graph', '-r', self.example_auth_out.name, '-T', fmt, '-O'], cwd=self.run_cwd), 0)
-            self.assertTrue(os.path.exists(os.path.join(self.run_cwd, 'example.com.' + fmt)))
-            self.assertTrue(os.path.exists(os.path.join(self.run_cwd, 'example.net.' + fmt)))
+            self.assertTrue(
+                os.path.exists(os.path.join(self.run_cwd, f'example.com.{fmt}'))
+            )
+            self.assertTrue(
+                os.path.exists(os.path.join(self.run_cwd, f'example.net.{fmt}'))
+            )
 
-            with io.open(os.path.join(self.run_cwd, 'example.com.' + fmt), 'rb') as fh:
+            with io.open(os.path.join(self.run_cwd, f'example.com.{fmt}'), 'rb') as fh:
                 first_bytes = fh.read(len(magic_codes_mapping[fmt]))
                 self.assertEqual(first_bytes, magic_codes_mapping[fmt])
 

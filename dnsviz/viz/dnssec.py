@@ -113,31 +113,26 @@ class RRsetNonExistent(object):
     def serialize(self, consolidate_clients, html_format=False, map_ip_to_ns_name=None):
         d = OrderedDict()
 
-        if html_format:
-            formatter = lambda x: escape(x, True)
-        else:
-            formatter = lambda x: x
-
+        formatter = (lambda x: escape(x, True)) if html_format else (lambda x: x)
         if self.rdtype == dns.rdatatype.NSEC3:
             d['name'] = fmt.format_nsec3_name(self.name)
         else:
             d['name'] = formatter(lb2s(self.name.canonicalize().to_text()))
         d['ttl'] = None
         d['type'] = dns.rdatatype.to_text(self.rdtype)
-        if self.nxdomain:
-            d['rdata'] = ['NXDOMAIN']
-        else:
-            d['rdata'] = ['NODATA']
-
+        d['rdata'] = ['NXDOMAIN'] if self.nxdomain else ['NODATA']
         servers = tuple_to_dict(self.servers_clients)
         if consolidate_clients:
-            servers = list(servers)
-            servers.sort()
+            servers = sorted(servers)
         d['servers'] = servers
 
         if map_ip_to_ns_name is not None:
-            ns_names = list(set([lb2s(map_ip_to_ns_name(s)[0][0].canonicalize().to_text()) for s in servers]))
-            ns_names.sort()
+            ns_names = sorted(
+                {
+                    lb2s(map_ip_to_ns_name(s)[0][0].canonicalize().to_text())
+                    for s in servers
+                }
+            )
             d['ns_names'] = ns_names
 
         tags = set()
@@ -153,9 +148,7 @@ class RRsetNonExistent(object):
             d['nsid_values'] = nsids
             d['nsid_values'].sort()
 
-        d['query_options'] = list(tags)
-        d['query_options'].sort()
-
+        d['query_options'] = sorted(tags)
         return d
 
 class DNSAuthGraph:
@@ -201,22 +194,18 @@ class DNSAuthGraph:
             if m[0] == 'scale':
                 coords = number_units_re.findall(m[1])
                 if (len(coords) > 1):
-                    t += 's%s,%s,0,0' % (self._raphael_unit_mapping_expression(coords[0][0], coords[0][1]), self._raphael_unit_mapping_expression(coords[1][0], coords[1][1]))
+                    t += f's{self._raphael_unit_mapping_expression(coords[0][0], coords[0][1])},{self._raphael_unit_mapping_expression(coords[1][0], coords[1][1])},0,0'
                 else:
-                    t += 's%s,0,0,0' % (coords[0])
+                    t += f's{coords[0]},0,0,0'
             if m[0] == 'translate':
                 coords = number_units_re.findall(m[1])
                 if (len(coords) > 1):
-                    t += 't%s,%s' % (self._raphael_unit_mapping_expression(coords[0][0], coords[0][1]), self._raphael_unit_mapping_expression(coords[1][0], coords[1][1]))
+                    t += f't{self._raphael_unit_mapping_expression(coords[0][0], coords[0][1])},{self._raphael_unit_mapping_expression(coords[1][0], coords[1][1])}'
                 else:
-                    t += 't%s,0,' % (self._raphael_unit_mapping_expression(coords[0][0], coords[0][1]))
+                    t += f't{self._raphael_unit_mapping_expression(coords[0][0], coords[0][1])},0,'
         return t
 
     def _write_raphael_node(self, node, node_id, transform):
-        required_attrs = { 'path': set(['d']), 'ellipse': set(['cx','cy','rx','ry']),
-            'polygon': set(['points']), 'polyline': set(['points']),
-            'text': set(['x','y']), 'image': set(['src','x','y','width','height']) }
-
         number_units_re = re.compile(r'(-?[0-9\.]+)(px|pt|cm|in)?')
 
         s = ''
@@ -244,29 +233,32 @@ class DNSAuthGraph:
                 s += '\tel = paper.ellipse(%s, %s, %s, %s)' % (node.getAttribute('cx'), node.getAttribute('cy'),
                         node.getAttribute('rx'), node.getAttribute('ry'))
             elif node.nodeName == 'text':
-                if node.childNodes:
-                    text = node.childNodes[0].nodeValue
-                else:
-                    text = ''
+                text = node.childNodes[0].nodeValue if node.childNodes else ''
                 s += '\tel = paper.text(%s, %s, \'%s\')' % (node.getAttribute('x'), node.getAttribute('y'), text)
             elif node.nodeName == 'image':
                 width, width_unit = number_units_re.match(node.getAttribute('width')).group(1, 2)
                 height, height_unit = number_units_re.match(node.getAttribute('height')).group(1, 2)
                 s += '\tel = paper.image(\'%s\', %s, %s, %s, %s)' % (node.getAttribute('xlink:href'), node.getAttribute('x'), node.getAttribute('y'), self._raphael_unit_mapping_expression(width, width_unit),self._raphael_unit_mapping_expression(height, height_unit))
-            elif node.nodeName == 'polygon' or node.nodeName == 'polyline':
+            elif node.nodeName in ['polygon', 'polyline']:
                 pathstring = 'M';
                 coords = number_units_re.findall(node.getAttribute('points'))
                 for i in range(len(coords)):
                     if i > 0:
-                        if i % 2 == 0:
-                            pathstring += 'L'
-                        else:
-                            pathstring += ','
+                        pathstring += 'L' if i % 2 == 0 else ','
                     pathstring += coords[i][0]
                 if node.nodeName == 'polygon':
                     pathstring += 'Z'
                 s += '\tel = paper.path(\'%s\')' % pathstring
             attrs = []
+            required_attrs = {
+                'path': {'d'},
+                'ellipse': {'cx', 'cy', 'rx', 'ry'},
+                'polygon': {'points'},
+                'polyline': {'points'},
+                'text': {'x', 'y'},
+                'image': {'src', 'x', 'y', 'width', 'height'},
+            }
+
             for i in range(node.attributes.length):
                 attr = node.attributes.item(i)
                 if attr.name not in required_attrs.get(node.nodeName, set()):
@@ -274,7 +266,7 @@ class DNSAuthGraph:
                         #XXX hack
                         val = '\'\\-\''
                     elif attr.name == 'stroke-width':
-                        val = attr.value+'*this.imageScale'
+                        val = f'{attr.value}*this.imageScale'
                     elif attr.name == 'transform':
                         transform += self._raphael_transform_str(attr.value)
                         continue
@@ -298,8 +290,7 @@ class DNSAuthGraph:
         svg = self.G.draw(format=execv_encode('svg'), prog=execv_encode('dot'))
         dom = xml.dom.minidom.parseString(svg)
 
-        s = 'AuthGraph.prototype.draw = function () {\n'
-        s += '\tvar el, paperScale;\n'
+        s = 'AuthGraph.prototype.draw = function () {\n' + '\tvar el, paperScale;\n'
         s += '\tvar node_info = %s;\n' % json.dumps(self.node_info)
         s += self._write_raphael_node(dom.documentElement, None, 's\'+this.imageScale+\',\'+this.imageScale+\',0,0')
         s += '\tpaper.setViewBox(0, 0, imageWidth, imageHeight);\n'
@@ -307,17 +298,21 @@ class DNSAuthGraph:
         return codecs.encode(s, 'utf-8')
 
     def draw(self, format, path=None):
-        if format == 'js':
-            img = self.to_raphael()
-            if path is None:
-                return img
-            else:
-                io.open(path, 'w', encoding='utf-8').write(img)
+        if format != 'js':
+            return (
+                self.G.draw(format=execv_encode(format), prog=execv_encode('dot'))
+                if path is None
+                else self.G.draw(
+                    path=execv_encode(path),
+                    format=execv_encode(format),
+                    prog=execv_encode('dot'),
+                )
+            )
+        img = self.to_raphael()
+        if path is None:
+            return img
         else:
-            if path is None:
-                return self.G.draw(format=execv_encode(format), prog=execv_encode('dot'))
-            else:
-                return self.G.draw(path=execv_encode(path), format=execv_encode(format), prog=execv_encode('dot'))
+            io.open(path, 'w', encoding='utf-8').write(img)
 
     def id_for_dnskey(self, name, dnskey):
         try:
@@ -336,9 +331,7 @@ class DNSAuthGraph:
             return self.ds_ids[(name,ds)]
 
     def id_for_multiple_ds(self, name, ds):
-        id_list = []
-        for d in ds:
-            id_list.append(self.id_for_ds(name, d))
+        id_list = [self.id_for_ds(name, d) for d in ds]
         id_list.sort()
         return '_'.join(map(str, id_list))
 
@@ -377,16 +370,16 @@ class DNSAuthGraph:
 
             img_str = ''
             if dnskey.errors or rrset_info_with_errors:
-                img_str = '<IMG SCALE="TRUE" SRC="%s"/>' % ERROR_ICON
+                img_str = f'<IMG SCALE="TRUE" SRC="{ERROR_ICON}"/>'
             elif dnskey.warnings or rrset_info_with_warnings:
-                img_str = '<IMG SCALE="TRUE" SRC="%s"/>' % WARNING_ICON
+                img_str = f'<IMG SCALE="TRUE" SRC="{WARNING_ICON}"/>'
 
             if img_str:
                 label_str = '<<TABLE BORDER="0" CELLPADDING="0"><TR><TD></TD><TD VALIGN="bottom"><FONT POINT-SIZE="%d" FACE="%s">DNSKEY</FONT></TD><TD VALIGN="bottom">%s</TD></TR><TR><TD COLSPAN="3" VALIGN="top"><FONT POINT-SIZE="%d">alg=%d, id=%d<BR/>%d bits</FONT></TD></TR></TABLE>>' % \
-                        (12, 'Helvetica', img_str, 10, dnskey.rdata.algorithm, dnskey.key_tag, dnskey.key_len)
+                            (12, 'Helvetica', img_str, 10, dnskey.rdata.algorithm, dnskey.key_tag, dnskey.key_len)
             else:
                 label_str = '<<FONT POINT-SIZE="%d" FACE="%s">DNSKEY</FONT><BR/><FONT POINT-SIZE="%d">alg=%d, id=%d<BR/>%d bits</FONT>>' % \
-                        (12, 'Helvetica', 10, dnskey.rdata.algorithm, dnskey.key_tag, dnskey.key_len)
+                            (12, 'Helvetica', 10, dnskey.rdata.algorithm, dnskey.key_tag, dnskey.key_len)
 
             attr = {'style': 'filled', 'fillcolor': '#ffffff' }
             if dnskey.rdata.flags & fmt.DNSKEY_FLAGS['SEP']:
@@ -474,24 +467,20 @@ class DNSAuthGraph:
             digest_types = [d.digest_type for d in ds]
             digest_types.sort()
             digest_str = ','.join(map(str, digest_types))
-            if len(digest_types) != 1:
-                plural = 's'
-            else:
-                plural = ''
-
+            plural = 's' if len(digest_types) != 1 else ''
             img_str = ''
             if [x for x in ds_statuses if [y for y in x.errors if isinstance(y, Errors.DSError)]] or zone_obj.rrset_errors[ds_info]:
-                img_str = '<IMG SCALE="TRUE" SRC="%s"/>' % ERROR_ICON
+                img_str = f'<IMG SCALE="TRUE" SRC="{ERROR_ICON}"/>'
             elif [x for x in ds_statuses if [y for y in x.warnings if isinstance(y, Errors.DSError)]] or zone_obj.rrset_warnings[ds_info]:
-                img_str = '<IMG SCALE="TRUE" SRC="%s"/>' % WARNING_ICON
+                img_str = f'<IMG SCALE="TRUE" SRC="{WARNING_ICON}"/>'
 
             attr = {'style': 'filled', 'fillcolor': '#ffffff' }
             if img_str:
                 label_str = '<<TABLE BORDER="0" CELLPADDING="0"><TR><TD></TD><TD VALIGN="bottom"><FONT POINT-SIZE="%d" FACE="%s">%s</FONT></TD><TD VALIGN="bottom">%s</TD></TR><TR><TD COLSPAN="3" VALIGN="top"><FONT POINT-SIZE="%d">digest alg%s=%s</FONT></TD></TR></TABLE>>' % \
-                        (12, 'Helvetica', dns.rdatatype.to_text(rdtype), img_str, 10, plural, digest_str)
+                            (12, 'Helvetica', dns.rdatatype.to_text(rdtype), img_str, 10, plural, digest_str)
             else:
                 label_str = '<<FONT POINT-SIZE="%d" FACE="%s">%s</FONT><BR/><FONT POINT-SIZE="%d">digest alg%s=%s</FONT>>' % \
-                        (12, 'Helvetica', dns.rdatatype.to_text(rdtype), 10, plural, digest_str)
+                            (12, 'Helvetica', dns.rdatatype.to_text(rdtype), 10, plural, digest_str)
 
             S, parent_node_str, parent_bottom_name, parent_top_name = self.get_zone(parent_obj.name)
             S.add_node(node_str, id=node_str, shape='ellipse', label=label_str, **attr)
@@ -559,26 +548,30 @@ class DNSAuthGraph:
         else:
             dnskey_node = self.get_dnskey(self.id_for_dnskey(zone_obj.name, ds_status.dnskey.rdata), zone_obj.name, ds_status.dnskey.rdata.algorithm, ds_status.dnskey.key_tag)
 
-        edge_id = 'digest-%s|%s|%s|%s' % (dnskey_node, ds_node, line_color.lstrip('#'), line_style)
+        edge_id = (
+            f"digest-{dnskey_node}|{ds_node}|{line_color.lstrip('#')}|{line_style}"
+        )
         self.G.add_edge(dnskey_node, ds_node, id=edge_id, color=line_color, style=line_style, dir='back')
 
         self.node_info[edge_id] = [self.node_info[ds_node][0].copy()]
-        self.node_info[edge_id][0]['description'] = 'Digest for %s' % (self.node_info[edge_id][0]['description'])
+        self.node_info[edge_id][0][
+            'description'
+        ] = f"Digest for {self.node_info[edge_id][0]['description']}"
 
         self.node_mapping[edge_id] = set(ds_statuses)
         for d in ds_statuses:
             self.node_reverse_mapping[d] = edge_id
 
     def zone_node_str(self, name):
-        return 'cluster_%s' % fmt.humanize_name(name)
+        return f'cluster_{fmt.humanize_name(name)}'
 
     def has_zone(self, name):
         return self.G.get_subgraph(self.zone_node_str(name)) is not None
 
     def get_zone(self, name):
         node_str = self.zone_node_str(name)
-        top_name = node_str + '_top'
-        bottom_name = node_str + '_bottom'
+        top_name = f'{node_str}_top'
+        bottom_name = f'{node_str}_bottom'
 
         S = self.G.get_subgraph(node_str)
 
@@ -586,23 +579,23 @@ class DNSAuthGraph:
 
     def add_zone(self, zone_obj):
         node_str = self.zone_node_str(zone_obj.name)
-        top_name = node_str + '_top'
-        bottom_name = node_str + '_bottom'
+        top_name = f'{node_str}_top'
+        bottom_name = f'{node_str}_bottom'
 
         S = self.G.get_subgraph(node_str)
         if S is None:
             img_str = ''
             if zone_obj.zone_errors:
-                img_str = '<IMG SCALE="TRUE" SRC="%s"/>' % ERROR_ICON
+                img_str = f'<IMG SCALE="TRUE" SRC="{ERROR_ICON}"/>'
             elif zone_obj.zone_warnings:
-                img_str = '<IMG SCALE="TRUE" SRC="%s"/>' % WARNING_ICON
+                img_str = f'<IMG SCALE="TRUE" SRC="{WARNING_ICON}"/>'
 
             if zone_obj.analysis_end is not None:
                 label_str = '<<TABLE BORDER="0"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="%d">%s</FONT></TD><TD ALIGN="RIGHT">%s</TD></TR><TR><TD ALIGN="LEFT" COLSPAN="2"><FONT POINT-SIZE="%d">(%s)</FONT></TD></TR></TABLE>>' % \
-                        (12, zone_obj, img_str, 10, fmt.datetime_to_str(zone_obj.analysis_end))
+                            (12, zone_obj, img_str, 10, fmt.datetime_to_str(zone_obj.analysis_end))
             else:
                 label_str = '<<TABLE BORDER="0"><TR><TD ALIGN="LEFT"><FONT POINT-SIZE="%d">%s</FONT></TD><TD ALIGN="RIGHT">%s</TD></TR></TABLE>>' % \
-                        (12, zone_obj, img_str)
+                            (12, zone_obj, img_str)
             S = self.G.add_subgraph(name=node_str, label=label_str, labeljust='l', penwidth='0.5', id=top_name)
             S.add_node(top_name, shape='point', style='invis')
             S.add_node(bottom_name, shape='point', style='invis')
@@ -612,7 +605,7 @@ class DNSAuthGraph:
 
             consolidate_clients = zone_obj.single_client()
             zone_serialized = OrderedDict()
-            zone_serialized['description'] = '%s zone' % (zone_obj)
+            zone_serialized['description'] = f'{zone_obj} zone'
             if zone_obj.zone_errors:
                 zone_serialized['errors'] = [e.serialize(consolidate_clients=consolidate_clients, html_format=True) for e in zone_obj.zone_errors]
             if zone_obj.zone_warnings:
@@ -623,11 +616,7 @@ class DNSAuthGraph:
         return S, node_str, bottom_name, top_name
 
     def add_rrsig(self, rrsig_status, name_obj, signer_obj, signed_node, port=None):
-        if signer_obj is not None:
-            zone_name = signer_obj.zone.name
-        else:
-            zone_name = name_obj.zone.name
-
+        zone_name = name_obj.zone.name if signer_obj is None else signer_obj.zone.name
         if rrsig_status.dnskey is None:
             dnskey_node = self.add_dnskey_non_existent(rrsig_status.rrsig.signer, zone_name, rrsig_status.rrsig.algorithm, rrsig_status.rrsig.key_tag)
         else:
@@ -636,9 +625,9 @@ class DNSAuthGraph:
         #XXX consider not adding icons if errors are apparent from color of line
         edge_label = ''
         if rrsig_status.errors:
-            edge_label = '<<TABLE BORDER="0"><TR><TD><IMG SCALE="TRUE" SRC="%s"/></TD></TR></TABLE>>' % ERROR_ICON
+            edge_label = f'<<TABLE BORDER="0"><TR><TD><IMG SCALE="TRUE" SRC="{ERROR_ICON}"/></TD></TR></TABLE>>'
         elif rrsig_status.warnings:
-            edge_label = '<<TABLE BORDER="0"><TR><TD><IMG SCALE="TRUE" SRC="%s"/></TD></TR></TABLE>>' % WARNING_ICON
+            edge_label = f'<<TABLE BORDER="0"><TR><TD><IMG SCALE="TRUE" SRC="{WARNING_ICON}"/></TD></TR></TABLE>>'
 
         if rrsig_status.validation_status == Status.RRSIG_STATUS_VALID:
             line_color = COLORS['secure']
@@ -663,12 +652,12 @@ class DNSAuthGraph:
             line_style = 'dashed'
 
         attrs = {}
-        edge_id = 'RRSIG-%s|%s|%s|%s' % (signed_node.replace('*', '_'), dnskey_node, line_color.lstrip('#'), line_style)
-        edge_key = '%s-%s' % (line_color, line_style)
+        edge_id = f"RRSIG-{signed_node.replace('*', '_')}|{dnskey_node}|{line_color.lstrip('#')}|{line_style}"
+        edge_key = f'{line_color}-{line_style}'
         if port is not None:
             attrs['tailport'] = port
-            edge_id += '|%s' % port.replace('*', '_')
-            edge_key += '|%s' % port
+            edge_id += f"|{port.replace('*', '_')}"
+            edge_key += f'|{port}'
 
         # if this DNSKEY is signing data in a zone above itself (e.g., DS
         # records), then remove constraint from the edge

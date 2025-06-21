@@ -193,14 +193,18 @@ class DNSQueryTransportMeta(object):
         try:
             req = base64.b64decode(d['req'])
         except TypeError:
-            raise TransportMetaDeserializationError('Base64 decoding DNS request failed: %s' % d['req'])
+            raise TransportMetaDeserializationError(
+                f"Base64 decoding DNS request failed: {d['req']}"
+            )
 
         if 'dst' not in d or d['dst'] is None:
             raise TransportMetaDeserializationError('Missing "dst" field in input.')
         try:
             dst = IPAddr(d['dst'])
         except ValueError:
-            raise TransportMetaDeserializationError('Invalid destination IP address: %s' % d['dst'])
+            raise TransportMetaDeserializationError(
+                f"Invalid destination IP address: {d['dst']}"
+            )
 
         if 'dport' not in d or d['dport'] is None:
             raise TransportMetaDeserializationError('Missing "dport" field in input.')
@@ -209,7 +213,9 @@ class DNSQueryTransportMeta(object):
             if dport < 0 or dport > 65535:
                 raise ValueError()
         except ValueError:
-            raise TransportMetaDeserializationError('Invalid destination port: %s' % d['dport'])
+            raise TransportMetaDeserializationError(
+                f"Invalid destination port: {d['dport']}"
+            )
 
         if 'src' not in d or d['src'] is None:
             src = None
@@ -217,7 +223,9 @@ class DNSQueryTransportMeta(object):
             try:
                 src = IPAddr(d['src'])
             except ValueError:
-                raise TransportMetaDeserializationError('Invalid source IP address: %s' % d['src'])
+                raise TransportMetaDeserializationError(
+                    f"Invalid source IP address: {d['src']}"
+                )
 
         if 'sport' not in d or d['sport'] is None:
             sport = None
@@ -227,7 +235,7 @@ class DNSQueryTransportMeta(object):
                 if sport < 0 or sport > 65535:
                     raise ValueError()
             except ValueError:
-                raise TransportMetaDeserializationError('Invalid source port: %s' % d['sport'])
+                raise TransportMetaDeserializationError(f"Invalid source port: {d['sport']}")
 
         if 'tcp' not in d or d['tcp'] is None:
             raise TransportMetaDeserializationError('Missing "tcp" field in input.')
@@ -236,20 +244,18 @@ class DNSQueryTransportMeta(object):
 
         if 'timeout' not in d or d['timeout'] is None:
             raise TransportMetaDeserializationError('Missing "timeout" field in input.')
-        else:
-            try:
-                timeout = int(d['timeout'])/1000.0
-            except ValueError:
-                raise TransportMetaDeserializationError('Invalid timeout value: %s' % d['timeout'])
+        try:
+            timeout = int(d['timeout'])/1000.0
+        except ValueError:
+            raise TransportMetaDeserializationError(
+                f"Invalid timeout value: {d['timeout']}"
+            )
 
         return cls(req, dst, tcp, timeout, dport, src, sport)
 
     def serialize_response(self):
         d = OrderedDict()
-        if self.res is not None:
-            d['res'] = lb2s(base64.b64encode(self.res))
-        else:
-            d['res'] = None
+        d['res'] = lb2s(base64.b64encode(self.res)) if self.res is not None else None
         if self.err is not None:
             if isinstance(self.err, (socket.error, EOFError)):
                 d['err'] = 'NETWORK_ERROR'
@@ -274,26 +280,32 @@ class DNSQueryTransportMeta(object):
                     if hasattr(errno, d['errno']):
                         self.err.errno = getattr(errno, d['errno'])
                     else:
-                        raise TransportMetaDeserializationError('Unknown errno name: %s' % d['errno'])
+                        raise TransportMetaDeserializationError(f"Unknown errno name: {d['errno']}")
             elif d['err'] == 'TIMEOUT':
                 self.err = dns.exception.Timeout()
             else:
-                raise TransportMetaDeserializationError('Unknown DNS response error: %s' % d['err'])
+                raise TransportMetaDeserializationError(
+                    f"Unknown DNS response error: {d['err']}"
+                )
 
-        elif not ('res' in d and d['res'] is not None):
+        elif 'res' not in d or d['res'] is None:
             raise TransportMetaDeserializationError('Missing DNS response or response error in input.')
 
         else:
             try:
                 self.res = base64.b64decode(d['res'])
             except TypeError:
-                raise TransportMetaDeserializationError('Base64 decoding of DNS response failed: %s' % d['res'])
+                raise TransportMetaDeserializationError(
+                    f"Base64 decoding of DNS response failed: {d['res']}"
+                )
 
         if 'src' in d and d['src'] is not None:
             try:
                 self.src = IPAddr(d['src'])
             except ValueError:
-                raise TransportMetaDeserializationError('Invalid source IP address: %s' % d['src'])
+                raise TransportMetaDeserializationError(
+                    f"Invalid source IP address: {d['src']}"
+                )
         elif not isinstance(self.err, socket.error):
             raise TransportMetaDeserializationError('Missing "src" field in input')
 
@@ -303,20 +315,21 @@ class DNSQueryTransportMeta(object):
                 if self.sport < 0 or self.sport > 65535:
                     raise ValueError()
             except ValueError:
-                raise TransportMetaDeserializationError('Invalid source port: %s' % d['sport'])
+                raise TransportMetaDeserializationError(f"Invalid source port: {d['sport']}")
         elif not isinstance(self.err, socket.error):
             raise TransportMetaDeserializationError('Missing "sport" field in input.')
 
-        if 'time_elapsed' in d and d['time_elapsed'] is not None:
-            try:
-                elapsed = int(d['time_elapsed'])
-                if elapsed < 0:
-                    raise ValueError()
-            except ValueError:
-                raise TransportMetaDeserializationError('Invalid time elapsed value: %s' % d['time_elapsed'])
-        else:
+        if 'time_elapsed' not in d or d['time_elapsed'] is None:
             raise TransportMetaDeserializationError('Missing "time_elapsed" field in input.')
 
+        try:
+            elapsed = int(d['time_elapsed'])
+            if elapsed < 0:
+                raise ValueError()
+        except ValueError:
+            raise TransportMetaDeserializationError(
+                f"Invalid time elapsed value: {d['time_elapsed']}"
+            )
         self.end_time = time.time()
         self.start_time = self.end_time - (elapsed/1000.0)
 
@@ -462,10 +475,7 @@ class DNSQueryTransportHandler(object):
         self.sock = self._sock
 
     def _get_af(self):
-        if self.dst.version == 6:
-            return socket.AF_INET6
-        else:
-            return socket.AF_INET
+        return socket.AF_INET6 if self.dst.version == 6 else socket.AF_INET
 
     def _create_socket(self):
         af = self._get_af()
@@ -478,11 +488,7 @@ class DNSQueryTransportHandler(object):
         if self.src is not None:
             src = self.src
         else:
-            if self.sock.family == socket.AF_INET6:
-                src = ANY_IPV6
-            else:
-                src = ANY_IPV4
-
+            src = ANY_IPV6 if self.sock.family == socket.AF_INET6 else ANY_IPV4
         if self.sport is not None:
             self.sock.bind((src, self.sport))
         else:
@@ -556,18 +562,16 @@ class DNSQueryTransportHandler(object):
         raise NotImplemented
 
     def serialize_requests(self):
-        d = {
+        return {
             'version': DNS_TRANSPORT_VERSION,
-            'requests': [q.serialize_request() for q in self.qtms]
+            'requests': [q.serialize_request() for q in self.qtms],
         }
-        return d
 
     def serialize_responses(self):
-        d = {
+        return {
             'version': DNS_TRANSPORT_VERSION,
-            'responses': [q.serialize_response() for q in self.qtms]
+            'responses': [q.serialize_response() for q in self.qtms],
         }
-        return d
 
 class DNSQueryTransportHandlerDNS(DNSQueryTransportHandler):
     singleton = True
@@ -619,9 +623,10 @@ class DNSQueryTransportHandlerDNS(DNSQueryTransportHandler):
             self.transport_type = socket.SOCK_DGRAM
 
     def _check_msg_recv_consistency(self):
-        if self.require_queryid_match and self.msg_recv[:2] != self._queryid_wire:
-            return False
-        return True
+        return (
+            not self.require_queryid_match
+            or self.msg_recv[:2] == self._queryid_wire
+        )
 
     def do_read(self):
         # UDP
@@ -636,14 +641,10 @@ class DNSQueryTransportHandlerDNS(DNSQueryTransportHandler):
                 self.err = e
                 return True
 
-        # TCP
         else:
             try:
                 if self.msg_recv_len is None:
-                    if self.msg_recv_buf:
-                        buf = self.sock.recv(1)
-                    else:
-                        buf = self.sock.recv(2)
+                    buf = self.sock.recv(1) if self.msg_recv_buf else self.sock.recv(2)
                     if buf == b'':
                         raise EOFError()
 
@@ -663,9 +664,10 @@ class DNSQueryTransportHandlerDNS(DNSQueryTransportHandler):
                         return True
 
             except (socket.error, EOFError) as e:
-                if isinstance(e, socket.error) and e.errno == socket.errno.EAGAIN:
-                    pass
-                else:
+                if (
+                    not isinstance(e, socket.error)
+                    or e.errno != socket.errno.EAGAIN
+                ):
                     self.err = e
                     return True
 
@@ -705,14 +707,18 @@ class DNSQueryTransportHandlerMulti(DNSQueryTransportHandler):
         try:
             content = json.loads(codecs.decode(self.msg_recv, 'utf-8'))
         except ValueError:
-            raise RemoteQueryTransportError('JSON decoding of response failed: %s' % self.msg_recv)
+            raise RemoteQueryTransportError(
+                f'JSON decoding of response failed: {self.msg_recv}'
+            )
 
         if 'version' not in content:
             raise RemoteQueryTransportError('No version information in response.')
         try:
             major_vers, minor_vers = [int(x) for x in str(content['version']).split('.', 1)]
         except ValueError:
-            raise RemoteQueryTransportError('Version of JSON input in response is invalid: %s' % content['version'])
+            raise RemoteQueryTransportError(
+                f"Version of JSON input in response is invalid: {content['version']}"
+            )
 
         # ensure major version is a match and minor version is no greater
         # than the current minor version
@@ -721,14 +727,13 @@ class DNSQueryTransportHandlerMulti(DNSQueryTransportHandler):
             raise RemoteQueryTransportError('Version %d.%d of JSON input in response is incompatible with this software.' % (major_vers, minor_vers))
 
         if 'error' in content:
-            raise RemoteQueryTransportError('Remote query error: %s' % content['error'])
+            raise RemoteQueryTransportError(f"Remote query error: {content['error']}")
 
         if self.mode == QTH_MODE_WRITE_READ:
             if 'responses' not in content:
                 raise RemoteQueryTransportError('No DNS response information in response.')
-        else: # self.mode == QTH_MODE_READ:
-            if 'requests' not in content:
-                raise RemoteQueryTransportError('No DNS requests information in response.')
+        elif 'requests' not in content:
+            raise RemoteQueryTransportError('No DNS requests information in response.')
 
         for i in range(len(self.qtms)):
             try:
@@ -754,31 +759,26 @@ class DNSQueryTransportHandlerHTTP(DNSQueryTransportHandlerMulti):
         if not scheme:
             scheme = 'http'
         elif scheme not in ('http', 'https'):
-            raise RemoteQueryTransportError('Invalid scheme: %s' % scheme)
+            raise RemoteQueryTransportError(f'Invalid scheme: {scheme}')
 
         self.use_ssl = scheme == 'https'
         self.host = parse_result.hostname
         self.dport = parse_result.port
         if self.dport is None:
-           if scheme == 'http':
-               self.dport = 80
-           else: # scheme == 'https'
-               self.dport = 443
+            self.dport = 80 if scheme == 'http' else 443
         self.path = parse_result.path
         self.username = parse_result.username
         self.password = parse_result.password
         self.insecure = insecure
 
-        if self.use_ssl:
-            self.setup_state = QTH_SETUP_NEED_WRITE
-        else:
-            self.setup_state = QTH_SETUP_DONE
-
+        self.setup_state = QTH_SETUP_NEED_WRITE if self.use_ssl else QTH_SETUP_DONE
         af = 0
         try:
             addrinfo = socket.getaddrinfo(self.host, self.dport, af, self.transport_type)
         except socket.gaierror:
-            raise RemoteQueryTransportError('Unable to resolve name of HTTP host: %s' % self.host)
+            raise RemoteQueryTransportError(
+                f'Unable to resolve name of HTTP host: {self.host}'
+            )
         self.dst = IPAddr(addrinfo[0][4][0])
 
         self.chunked_encoding = None
@@ -798,7 +798,7 @@ class DNSQueryTransportHandlerHTTP(DNSQueryTransportHandlerMulti):
         self.sock = new_sock
 
     def _post_data(self):
-        return 'content=' + urlquote.quote(json.dumps(self.serialize_requests()))
+        return f'content={urlquote.quote(json.dumps(self.serialize_requests()))}'
 
     def _authentication_header(self):
         if not self.username:
@@ -807,7 +807,7 @@ class DNSQueryTransportHandlerHTTP(DNSQueryTransportHandlerMulti):
         # set username/password
         username = self.username
         if self.password:
-            username += ':' + self.password
+            username += f':{self.password}'
         return 'Authorization: Basic %s\r\n' % (lb2s(base64.b64encode(codecs.encode(username, 'utf-8'))))
 
     def init_req(self):
@@ -819,7 +819,9 @@ class DNSQueryTransportHandlerHTTP(DNSQueryTransportHandlerMulti):
     def prepare(self):
         super(DNSQueryTransportHandlerHTTP, self).prepare()
         if self.err is not None and not isinstance(self.err, SocketInUse):
-            self.err = RemoteQueryTransportError('Error making HTTP connection: %s' % self.err)
+            self.err = RemoteQueryTransportError(
+                f'Error making HTTP connection: {self.err}'
+            )
 
     def do_setup(self):
         if self.use_ssl:
@@ -831,14 +833,14 @@ class DNSQueryTransportHandlerHTTP(DNSQueryTransportHandlerMulti):
             except ssl.SSLWantWriteError:
                 self.setup_state = QTH_SETUP_NEED_WRITE
             except ssl.SSLError as e:
-                self.err = RemoteQueryTransportError('SSL Error: %s' % e)
+                self.err = RemoteQueryTransportError(f'SSL Error: {e}')
             else:
                 self.setup_state = QTH_SETUP_DONE
 
     def do_write(self):
         val = super(DNSQueryTransportHandlerHTTP, self).do_write()
         if self.err is not None:
-            self.err = RemoteQueryTransportError('Error making HTTP request: %s' % self.err)
+            self.err = RemoteQueryTransportError(f'Error making HTTP request: {self.err}')
         return val
 
     def do_read(self):
@@ -894,17 +896,16 @@ class DNSQueryTransportHandlerHTTP(DNSQueryTransportHandlerMulti):
 
                         # find the chunk length
                         chunk_len_match = CHUNK_SIZE_RE.search(lb2s(self.msg_recv_buf))
-                        if chunk_len_match is not None:
-                            self.msg_recv_len = int(chunk_len_match.group('length'), 16)
-                            self.msg_recv_buf = self.msg_recv_buf[chunk_len_match.end():]
-                            self.msg_recv_index = 0
-                        else:
+                        if chunk_len_match is None:
                             # if we don't currently know the length of the next
                             # chunk, and we don't have enough data to find the
                             # length, then break out of the loop because we
                             # don't have any more data to go off of.
                             break
 
+                        self.msg_recv_len = int(chunk_len_match.group('length'), 16)
+                        self.msg_recv_buf = self.msg_recv_buf[chunk_len_match.end():]
+                        self.msg_recv_index = 0
                     if self.msg_recv_len is not None:
                         # we know a length of the current chunk
 
@@ -942,17 +943,15 @@ class DNSQueryTransportHandlerHTTP(DNSQueryTransportHandlerMulti):
                     self.msg_recv_buf = b''
 
         except (socket.error, EOFError) as e:
-            if isinstance(e, socket.error) and e.errno == socket.errno.EAGAIN:
-                pass
-            else:
+            if not isinstance(e, socket.error) or e.errno != socket.errno.EAGAIN:
                 # if we weren't passed any content length header, and we're not
                 # using chunked encoding, then don't throw an error.  If the
                 # content was bad, then it will be reflected in the decoding of
                 # the content
-                if self.chunked_encoding == False and self.msg_recv_len is None:
-                    pass
-                else:
-                    self.err = RemoteQueryTransportError('Error communicating with HTTP server: %s' % e)
+                if self.chunked_encoding != False or self.msg_recv_len is not None:
+                    self.err = RemoteQueryTransportError(
+                        f'Error communicating with HTTP server: {e}'
+                    )
                 return True
 
     def do_timeout(self):
@@ -990,12 +989,16 @@ class DNSQueryTransportHandlerWebSocketServer(DNSQueryTransportHandlerMulti):
     def prepare(self):
         super(DNSQueryTransportHandlerWebSocketServer, self).prepare()
         if self.err is not None and not isinstance(self.err, SocketInUse):
-            self.err = RemoteQueryTransportError('Error connecting to UNIX domain socket: %s' % self.err)
+            self.err = RemoteQueryTransportError(
+                f'Error connecting to UNIX domain socket: {self.err}'
+            )
 
     def do_write(self):
         val = super(DNSQueryTransportHandlerWebSocketServer, self).do_write()
         if self.err is not None:
-            self.err = RemoteQueryTransportError('Error writing to UNIX domain socket: %s' % self.err)
+            self.err = RemoteQueryTransportError(
+                f'Error writing to UNIX domain socket: {self.err}'
+            )
         return val
 
     def finalize(self):
@@ -1052,10 +1055,10 @@ class DNSQueryTransportHandlerWebSocketServer(DNSQueryTransportHandlerMulti):
             # look through as many frames as are readily available
             # (without having to read from socket again)
             while self.msg_recv_buf:
-                if self.msg_recv_len is None:
                     # looking for frame length
-                    if len(self.msg_recv_buf) >= 2:
-                        byte0, byte1 = struct.unpack(b'!BB', self.msg_recv_buf[0:2])
+                if len(self.msg_recv_buf) >= 2:
+                    if self.msg_recv_len is None:
+                        byte0, byte1 = struct.unpack(b'!BB', self.msg_recv_buf[:2])
                         byte1b = byte1 & 0x7f
 
                         # mask must be set
@@ -1075,27 +1078,26 @@ class DNSQueryTransportHandlerWebSocketServer(DNSQueryTransportHandlerMulti):
                         else: # byte1b == 127:
                             header_len = 10
 
-                        if len(self.msg_recv_buf) >= header_len:
-                            if byte1b <= 125:
-                                self.msg_recv_len = byte1b
-                            elif byte1b == 126:
-                                self.msg_recv_len = struct.unpack(b'!H', self.msg_recv_buf[2:4])[0]
-                            else: # byte1b == 127:
-                                self.msg_recv_len = struct.unpack(b'!Q', self.msg_recv_buf[2:10])[0]
-
-                            if self.unmask_on_recv:
-                                # handle mask
-                                self.mask_mapping.append(len(self.msg_recv))
-                                self.msg_recv_len += 4
-
-                            self.msg_recv_buf = self.msg_recv_buf[header_len:]
-
-                        else:
+                        if len(self.msg_recv_buf) < header_len:
                             # if we don't currently know the length of the next
                             # frame, and we don't have enough data to find the
                             # length, then break out of the loop because we
                             # don't have any more data to go off of.
                             break
+
+                        if byte1b <= 125:
+                            self.msg_recv_len = byte1b
+                        elif byte1b == 126:
+                            self.msg_recv_len = struct.unpack(b'!H', self.msg_recv_buf[2:4])[0]
+                        else: # byte1b == 127:
+                            self.msg_recv_len = struct.unpack(b'!Q', self.msg_recv_buf[2:10])[0]
+
+                        if self.unmask_on_recv:
+                            # handle mask
+                            self.mask_mapping.append(len(self.msg_recv))
+                            self.msg_recv_len += 4
+
+                        self.msg_recv_buf = self.msg_recv_buf[header_len:]
 
                 if self.msg_recv_len is not None:
                     # we know a length of the current chunk
@@ -1116,9 +1118,7 @@ class DNSQueryTransportHandlerWebSocketServer(DNSQueryTransportHandlerMulti):
                         return True
 
         except (socket.error, EOFError) as e:
-            if isinstance(e, socket.error) and e.errno == socket.errno.EAGAIN:
-                pass
-            else:
+            if not isinstance(e, socket.error) or e.errno != socket.errno.EAGAIN:
                 self.err = e
                 return True
 
@@ -1154,11 +1154,7 @@ class DNSQueryTransportHandlerWebSocketClient(DNSQueryTransportHandlerWebSocketS
         header += struct.pack(b'!BBBB', *mask)
 
         # python3/python2 dual compatibility
-        if isinstance(data, str):
-            map_func = lambda x: ord(x)
-        else:
-            map_func = lambda x: x
-
+        map_func = (lambda x: ord(x)) if isinstance(data, str) else (lambda x: x)
         self.msg_send = header
         for i, b in enumerate(data):
             self.msg_send += struct.pack(b'!B', mask[i % 4] ^ map_func(b))
@@ -1238,15 +1234,15 @@ class DNSQueryTransportHandlerRemoteCmd(DNSQueryTransportHandlerCmd):
         if not scheme:
             scheme = 'ssh'
         elif scheme != 'ssh':
-            raise RemoteQueryTransportError('Invalid scheme: %s' % scheme)
+            raise RemoteQueryTransportError(f'Invalid scheme: {scheme}')
 
         args = ['ssh', '-T']
         if parse_result.port is not None:
            args.extend(['-p', str(parse_result.port)])
         if parse_result.username is not None:
-            args.append('%s@%s' % (parse_result.username, parse_result.hostname))
+            args.append(f'{parse_result.username}@{parse_result.hostname}')
         else:
-            args.append('%s' % (parse_result.hostname))
+            args.append(f'{parse_result.hostname}')
         if parse_result.path and parse_result.path != '/':
             args.append(parse_result.path)
         else:

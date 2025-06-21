@@ -58,10 +58,9 @@ def _get_nameservers_for_name(addr):
     try:
         addrinfo = socket.getaddrinfo(addr, 53, 0, 0, socket.IPPROTO_TCP)
     except socket.gaierror:
-        raise SemanticException('Unable to resolve "%s"' % addr)
+        raise SemanticException(f'Unable to resolve "{addr}"')
     else:
-        for item in addrinfo:
-            nameservers.append(IPAddr(item[4][0]))
+        nameservers.extend(IPAddr(item[4][0]) for item in addrinfo)
     return nameservers
 
 class DigCommandLineQuery:
@@ -140,11 +139,9 @@ class DigCommandLineQuery:
                 self.show_authority = True
             elif arg == '+noauthority':
                 self.show_authority = False
-            #TODO +[no]besteffort
             elif arg.startswith('+bufsize') and \
-                    (len(arg) <= 8 or arg[8] == '='):
-                if self.edns < 0:
-                    self.edns = 0
+                        (len(arg) <= 8 or arg[8] == '='):
+                self.edns = max(self.edns, 0)
                 try:
                     opt, arg = arg.split('=')
                     self.edns_max_udp_payload = int(arg)
@@ -168,17 +165,13 @@ class DigCommandLineQuery:
                 self.show_comments = True
             elif arg == '+nocomments':
                 self.show_comments = False
-            #TODO +[no]crypto
-            #TODO +[no]defname
             elif arg == '+dnssec':
-                if self.edns < 0:
-                    self.edns = 0
+                self.edns = max(self.edns, 0)
                 self.edns_flags |= dns.flags.DO
             elif arg == '+nodnssec':
                 self.edns_flags &= ~dns.flags.DO
-            #TODO +domain=somename
             elif arg.startswith('+edns') and \
-                    (len(arg) <= 5 or arg[5] == '='):
+                        (len(arg) <= 5 or arg[5] == '='):
                 try:
                     opt, arg = arg.split('=')
                     self.edns = int(arg)
@@ -186,8 +179,6 @@ class DigCommandLineQuery:
                     raise CommandLineException('+edns requires an integer argument greater than or equal to 0')
             elif arg == '+noedns':
                 self.edns = -1
-            #TODO +[no]expire
-            #TODO +[no]fail
             elif arg == '+identify':
                 self.show_ip_port = True
             elif arg == '+noidentify':
@@ -196,23 +187,19 @@ class DigCommandLineQuery:
                 self.handlers = []
             elif arg == '+noignore':
                 self.handlers = [Q.UseTCPOnTCFlagHandler()]
-            #TODO +[no]keepopen
             elif arg == '+multiline':
                 self.multiline = True
             elif arg == '+nomultiline':
                 self.multiline = False
-            #TODO +ndots=D
             elif arg == '+nsid':
-                if self.edns < 0:
-                    self.edns = 0
-                if not [x for x in filter(lambda x: x.otype == dns.edns.NSID, self.edns_options)]:
+                self.edns = max(self.edns, 0)
+                if not list(
+                    filter(lambda x: x.otype == dns.edns.NSID, self.edns_options)
+                ):
                     self.edns_options.append(dns.edns.GenericOption(dns.edns.NSID, b''))
             elif arg == '+nonsid':
-                l = [x for x in filter(lambda x: x.otype == dns.edns.NSID, self.edns_options)]
+                l = list(filter(lambda x: x.otype == dns.edns.NSID, self.edns_options))
                 self.edns_options.remove(dns.edns.GenericOption(dns.edns.NSID, b''))
-            #TODO +[no]nssearch
-            #TODO +[no]onesoa
-            #TODO +[no]qr
             elif arg == '+question':
                 self.show_question = True
             elif arg == '+noquestion':
@@ -222,59 +209,47 @@ class DigCommandLineQuery:
             elif arg in ('+norecurse', '+norec'):
                 self.flags &= ~dns.flags.RD
             elif arg.startswith('+retry') and \
-                    (len(arg) <= 6 or arg[6] == '='):
+                        (len(arg) <= 6 or arg[6] == '='):
                 try:
                     opt, arg = arg.split('=')
                     self.max_attempts = int(arg) + 1
-                    if self.max_attempts < 1:
-                        self.max_attempts = 1
+                    self.max_attempts = max(self.max_attempts, 1)
                 except ValueError:
                     raise CommandLineException('+retry requires an integer argument')
             elif arg == '+rrcomments':
                 self.show_rr_comments = True
             elif arg == '+norrcomments':
                 self.show_rr_comments = False
-            #TODO +[no]search
             elif arg == '+short':
                 self.short = True
             elif arg == '+noshort':
                 self.short = False
-            #TODO +[no]showsearch
-            #TODO +[no]sigchase
-            #TODO +[no]sit[=####]
-            #TODO +split=W
             elif arg == '+stats':
                 self.show_stats = True
             elif arg == '+nostats':
                 self.show_stats = False
-            #TODO +[no]subnet=addr/prefix
             elif arg in ('+tcp', '+vc'):
                 self.tcp = True
             elif arg in ('+notcp', '+novc'):
                 self.tcp = False
             elif arg.startswith('+timeout') and \
-                    (len(arg) <= 8 or arg[8] == '='):
+                        (len(arg) <= 8 or arg[8] == '='):
                 try:
                     opt, arg = arg.split('=')
                     self.query_timeout = float(arg)
-                    if self.query_timeout < 1.0:
-                        self.query_timeout = 1.0
+                    self.query_timeout = max(self.query_timeout, 1.0)
                 except ValueError:
                     raise CommandLineException('+timeout requires a numerical argument')
-            #TODO +[no]topdown
-            #TODO +[no]trace
-            #TODO +[no]tries
             elif arg.startswith('+tries') and \
-                    (len(arg) <= 6 or arg[6] == '='):
+                        (len(arg) <= 6 or arg[6] == '='):
                 try:
                     opt, arg = arg.split('=')
                     self.max_attempts = int(arg)
-                    if self.max_attempts < 1:
-                        self.max_attempts = 1
+                    self.max_attempts = max(self.max_attempts, 1)
                 except ValueError:
                     raise CommandLineException('+tries requires an integer argument')
             elif arg.startswith('+trusted-key') and \
-                    (len(arg) <= 12 or arg[12] == '='):
+                        (len(arg) <= 12 or arg[12] == '='):
                 try:
                     opt, arg = arg.split('=')
                     if not arg:
@@ -285,17 +260,19 @@ class DigCommandLineQuery:
                     try:
                         tk_str = open(arg).read()
                     except IOError as e:
-                        raise CommandLineException('%s: "%s"' % (e.strerror, arg))
+                        raise CommandLineException(f'{e.strerror}: "{arg}"')
                     try:
                         self.trusted_keys = get_trusted_keys(tk_str)
                     except dns.exception.DNSException:
-                        raise SemanticException('There was an error parsing the trusted keys file: "%s"' % arg)
+                        raise SemanticException(
+                            f'There was an error parsing the trusted keys file: "{arg}"'
+                        )
             elif arg in ('+ttlid', '+ttl'):
                 self.show_ttl = True
             elif arg in ('+nottlid', '+nottl'):
                 self.show_ttl = False
             elif arg.startswith('+lg') and \
-                    (len(arg) <= 3 or arg[3] == '='):
+                        (len(arg) <= 3 or arg[3] == '='):
                 try:
                     opt, arg = arg.split('=')
                     if not arg:
@@ -305,7 +282,7 @@ class DigCommandLineQuery:
                 else:
                     self.lg_url = arg
             else:
-                raise CommandLineException('Option "%s" not recognized.' % arg)
+                raise CommandLineException(f'Option "{arg}" not recognized.')
 
     def process_nameservers(self, nameservers, use_ipv4, use_ipv6):
         processed_nameservers = []
@@ -342,12 +319,13 @@ class DigCommandLineQuery:
             elif url.scheme == 'ssh':
                 fact = transport.DNSQueryTransportHandlerRemoteCmdFactory(self.lg_url)
             else:
-                usage('Unsupported URL scheme: "%s"' % self.lg_url)
+                usage(f'Unsupported URL scheme: "{self.lg_url}"')
                 sys.exit(1)
             looking_glass_cache[self.lg_url] = fact
         self.lg_factory = looking_glass_cache[self.lg_url]
 
     def _get_resolver(self, options):
+
         class CustomQuery(Q.DNSQueryFactory):
             flags = self.flags
             edns = self.edns
@@ -357,11 +335,7 @@ class DigCommandLineQuery:
             tcp = self.tcp
             response_handlers = self.handlers
 
-        if self.lg_factory is not None:
-            th_factories = (self.lg_factory,)
-        else:
-            th_factories = None
-
+        th_factories = (self.lg_factory, ) if self.lg_factory is not None else None
         return Resolver.Resolver(self.nameservers, CustomQuery,
                 timeout=self.query_timeout, max_attempts=self.max_attempts,
                 lifetime=self.lifetime, shuffle=False, client_ipv4=options['client_ipv4'],
@@ -374,16 +348,10 @@ class DigCommandLineQuery:
         return dns.name.from_text(self.qname)
 
     def _get_rdtype(self, options):
-        if self.rdtype is None:
-            return options['rdtype']
-        else:
-            return self.rdtype
+        return options['rdtype'] if self.rdtype is None else self.rdtype
 
     def _get_rdclass(self, options):
-        if self.rdclass is None:
-            return options['rdclass']
-        else:
-            return self.rdclass
+        return options['rdclass'] if self.rdclass is None else self.rdclass
 
     def query(self, options):
         res = self._get_resolver(options)
@@ -409,16 +377,10 @@ class DigCommandLineQuery:
                 return s
 
             # get counts
-            if response.message.question:
-                question_ct = 1
-            else:
-                question_ct = 0
-            answer_ct = 0
-            for i in response.message.answer: answer_ct += len(i)
-            authority_ct = 0
-            for i in response.message.authority: authority_ct += len(i)
-            additional_ct = 0
-            for i in response.message.additional: additional_ct += len(i)
+            question_ct = 1 if response.message.question else 0
+            answer_ct = sum(len(i) for i in response.message.answer)
+            authority_ct = sum(len(i) for i in response.message.authority)
+            additional_ct = sum(len(i) for i in response.message.additional)
             if response.message.edns >= 0:
                 additional_ct += 1
 
@@ -437,14 +399,14 @@ class DigCommandLineQuery:
                     s += '; EDNS: version: %d, flags: %s; udp: %d\n' % (response.message.edns, dns.flags.edns_to_text(response.message.ednsflags).lower(), response.message.payload)
 
                     for opt in response.message.options:
-                        chars = []
                         if opt.otype == dns.edns.NSID:
                             s += '; NSID:'
+                            chars = []
                             for b in opt.data:
                                 s += ' %02x' % b
                                 chars.append(chr(b))
                             for c in chars:
-                                s += ' (%s)' % c
+                                s += f' ({c})'
                             s += '\n'
 
             if response.message.question and self.show_question:
@@ -455,19 +417,13 @@ class DigCommandLineQuery:
                     s += '\n'
 
             for section, title in ((response.message.answer, 'ANSWER'), (response.message.authority, 'AUTHORITY'), (response.message.additional, 'ADDITIONAL')):
-                if section and getattr(self, 'show_%s' % title.lower()):
+                if section and getattr(self, f'show_{title.lower()}'):
                     if self.show_comments:
                         s += ';; %s SECTION:\n' % title
                     for rrset in section:
                         for rr in rrset:
-                            if self.show_ttl:
-                                ttl = '\t%d' % rrset.ttl
-                            else:
-                                ttl = ''
-                            if self.show_class:
-                                cls = '\t%s' % dns.rdataclass.to_text(rrset.rdclass)
-                            else:
-                                cls = ''
+                            ttl = '\t%d' % rrset.ttl if self.show_ttl else ''
+                            cls = '\t%s' % dns.rdataclass.to_text(rrset.rdclass) if self.show_class else ''
                             s += '%s\t%s%s\t%s\t%s\n' % (rrset.name, ttl, cls, dns.rdatatype.to_text(rrset.rdtype), rr.to_text())
                     if self.show_comments:
                         s += '\n'
@@ -546,16 +502,19 @@ class DigCommandLine:
         try:
             if len(self.args[self.arg_index]) > 2:
                 if not has_arg:
-                    raise CommandLineException('"%s" option does not take arguments' % self.args[self.arg_index][:2])
+                    raise CommandLineException(
+                        f'"{self.args[self.arg_index][:2]}" option does not take arguments'
+                    )
                 return self.args[self.arg_index][2:]
             else:
                 if not has_arg:
                     return None
-                else:
-                    self.arg_index += 1
-                    if self.arg_index >= len(self.args):
-                        raise CommandLineException('"%s" option requires an argument' % self.args[self.arg_index - 1])
-                    return self.args[self.arg_index]
+                self.arg_index += 1
+                if self.arg_index >= len(self.args):
+                    raise CommandLineException(
+                        f'"{self.args[self.arg_index - 1]}" option requires an argument'
+                    )
+                return self.args[self.arg_index]
         finally:
             self.arg_index += 1
 
@@ -572,7 +531,7 @@ class DigCommandLine:
         try:
             addr = IPAddr(arg)
         except ValueError:
-            raise SemanticException('Invalid IP address: "%s"' % arg)
+            raise SemanticException(f'Invalid IP address: "{arg}"')
         else:
             qname = addr.arpa_name()
 
@@ -634,19 +593,15 @@ class DigCommandLine:
             try:
                 addr = IPAddr(arg)
             except ValueError:
-                raise SemanticException('Invalid IP address: "%s"' % arg)
+                raise SemanticException(f'Invalid IP address: "{arg}"')
 
-            if addr.version == 6:
-                family = socket.AF_INET6
-            else:
-                family = socket.AF_INET
-
+            family = socket.AF_INET6 if addr.version == 6 else socket.AF_INET
             try:
                 s = socket.socket(family)
                 s.bind((addr, 0))
             except socket.error as e:
                 if e.errno == errno.EADDRNOTAVAIL:
-                    raise SemanticException('Cannot bind to specified IP address: "%s"' % addr)
+                    raise SemanticException(f'Cannot bind to specified IP address: "{addr}"')
             else:
                 del s
                 if addr.version == 6:
@@ -658,10 +613,7 @@ class DigCommandLine:
             try:
                 self.options['rdclass'] = dns.rdataclass.from_text(arg)
             except dns.rdataclass.UnknownRdataclass:
-                raise SemanticException('Unknown class: "%s".' % arg)
-        #TODO -f
-        #TODO -k
-        #TODO -m
+                raise SemanticException(f'Unknown class: "{arg}".')
         elif self.args[self.arg_index].startswith('-p'):
             arg = self._get_arg(True)
             try:
@@ -670,14 +622,12 @@ class DigCommandLine:
                     raise ValueError()
             except ValueError:
                 raise CommandLineException('-p requires an integer argument between 0 and 65535')
-        #TODO -v
         elif self.args[self.arg_index].startswith('-t'):
             arg = self._get_arg(True)
             try:
                 self.options['rdtype'] = dns.rdatatype.from_text(arg)
             except dns.rdatatype.UnknownRdatatype:
-                raise SemanticException('Unknown type: "%s".' % arg)
-        #TODO -y
+                raise SemanticException(f'Unknown type: "{arg}".')
         elif self.args[self.arg_index].startswith('-6'):
             self._get_arg(False)
             self.options['use_ipv6'] = True
@@ -688,7 +638,9 @@ class DigCommandLine:
             self._get_arg(False)
             self.options['insecure'] = True
         else:
-            raise CommandLineException('Option "%s" not recognized.' % self.args[self.arg_index][:2])
+            raise CommandLineException(
+                f'Option "{self.args[self.arg_index][:2]}" not recognized.'
+            )
 
     def _add_query_option(self, query):
         if query is None:
@@ -704,30 +656,21 @@ class DigCommandLine:
             if self.args[self.arg_index][0] == '@':
                 self._add_server_to_options(query)
 
-            # reverse lookup
             elif self.args[self.arg_index].startswith('-x'):
                 query = self._add_reverse_query()
                 self.queries.append(query)
 
-            # forward lookup (with -q)
             elif self.args[self.arg_index].startswith('-q'):
                 query = self._add_qname_from_opt()
                 self.queries.append(query)
 
-            # options
             elif self.args[self.arg_index][0] == '-':
                 self._add_option()
 
-            # query options
             elif self.args[self.arg_index][0] == '+':
                 self._add_query_option(query)
 
-            # global query class/type
-            elif query is None and self._add_default_option():
-                pass
-
-            # name to be queried
-            else:
+            elif query is not None or not self._add_default_option():
                 query = self._add_qname()
                 self.queries.append(query)
 

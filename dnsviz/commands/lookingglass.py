@@ -64,14 +64,18 @@ def main(argv):
                 try:
                     content = json.loads(codecs.decode(qth_reader.msg_recv, 'utf-8'))
                 except ValueError:
-                    raise RemoteQueryError('JSON decoding of request failed: %s' % qth_reader.msg_recv)
+                    raise RemoteQueryError(
+                        f'JSON decoding of request failed: {qth_reader.msg_recv}'
+                    )
 
                 if 'version' not in content:
                     raise RemoteQueryError('No version information in request.')
                 try:
                     major_vers, minor_vers = [int(x) for x in str(content['version']).split('.', 1)]
                 except ValueError:
-                    raise RemoteQueryError('Version of JSON input in request is invalid: %s' % content['version'])
+                    raise RemoteQueryError(
+                        f"Version of JSON input in request is invalid: {content['version']}"
+                    )
 
                 # ensure major version is a match and minor version is no greater
                 # than the current minor version
@@ -86,7 +90,7 @@ def main(argv):
                     try:
                         qtm = transport.DNSQueryTransportMeta.deserialize_request(qtm_serialized)
                     except transport.TransportMetaDeserializationError as e:
-                        raise RemoteQueryError('Error deserializing request information: %s' % e)
+                        raise RemoteQueryError(f'Error deserializing request information: {e}')
 
                     qth_writer.add_qtm(qtm)
                     th = th_factory.build(processed_queue=response_queue)

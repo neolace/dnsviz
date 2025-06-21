@@ -101,7 +101,7 @@ class DNSResponse:
             return Q.response_errors.get(self.error)
 
     def __repr__(self):
-        return '<%s: "%s">' % (self.__class__.__name__, str(self))
+        return f'<{self.__class__.__name__}: "{str(self)}">'
 
     @classmethod
     def _query_tag_bind(cls, tcp, flags, edns, edns_flags, edns_max_udp_payload, edns_options, qname):
@@ -150,16 +150,8 @@ class DNSResponse:
 
     @classmethod
     def _query_tag_human(cls, tcp, flags, edns, edns_flags, edns_max_udp_payload, edns_options, qname):
-        s = ''
-        if tcp:
-            s += 'TCP_'
-        else:
-            s += 'UDP_'
-
-        if flags & dns.flags.RD:
-            s += '+'
-        else:
-            s += '-'
+        s = '' + ('TCP_' if tcp else 'UDP_')
+        s += '+' if flags & dns.flags.RD else '-'
         if flags & dns.flags.CD:
             s += 'C'
         # Flags other than the ones commonly seen in queries
@@ -192,15 +184,15 @@ class DNSResponse:
 
             # other options
             for opt in edns_options:
-                if opt.otype == 3:
+                if opt.otype == 10:
+                    # DNS cookies
+                    s += 'K'
+                elif opt.otype == 3:
                     # NSID
                     s += 'N'
                 elif opt.otype == 8:
                     # EDNS Client Subnet
                     s += 's'
-                elif opt.otype == 10:
-                    # DNS cookies
-                    s += 'K'
                 else:
                     # DNS cookies
                     s += 'O(%d)' % opt.otype
@@ -224,7 +216,7 @@ class DNSResponse:
         try:
             nsid_val = nsid_opt.data.decode('ascii')
         except UnicodeDecodeError:
-            nsid_val = '0x' + lb2s(binascii.hexlify(nsid_opt.data))
+            nsid_val = f'0x{lb2s(binascii.hexlify(nsid_opt.data))}'
         return nsid_val
 
     def request_cookie_tag(self):
@@ -274,9 +266,7 @@ class DNSResponse:
     def section_rr_count(self, section):
         if self.message is None:
             return None
-        n = 0
-        for i in section:
-            n += len(i)
+        n = sum(len(i) for i in section)
         if section is self.message.additional and self.message.edns >= 0:
             n += 1
         return n
@@ -284,12 +274,13 @@ class DNSResponse:
     def section_digest(self, section):
         if self.message is None:
             return None
-        d = ''
         rrsets = section[:]
         rrsets.sort()
-        for rrset in rrsets:
-            d += RRsetInfo.rrset_canonicalized_to_wire(rrset, rrset.name, rrset.ttl)
-        return 'md5'+hashlib.md5(d).hexdigest()
+        d = ''.join(
+            RRsetInfo.rrset_canonicalized_to_wire(rrset, rrset.name, rrset.ttl)
+            for rrset in rrsets
+        )
+        return f'md5{hashlib.md5(d).hexdigest()}'
 
     def retries(self):
         return len(self.history)
@@ -370,27 +361,22 @@ class DNSResponse:
             else:
                 udp_attempted = True
 
-            # Mark responsiveness if this retry wasn't caused by network error
-            # or timeout.
             if retry.cause not in (Q.RETRY_CAUSE_NETWORK_ERROR, Q.RETRY_CAUSE_TIMEOUT):
                 if tcp:
                     tcp_responsive = True
                 else:
                     udp_responsive = True
 
-            # If the last cause/action resulted in a valid response where there
-            # wasn't previously on the same protocol, then mark the
-            # cause/action.
             if retry.cause in (Q.RETRY_CAUSE_TC_SET, Q.RETRY_CAUSE_DIAGNOSTIC):
                 if tcp:
                     if responsive_cause_index is None and \
-                            not tcp_valid and prev_index is not None and self.history[prev_index].action != Q.RETRY_ACTION_USE_TCP:
+                                not tcp_valid and prev_index is not None and self.history[prev_index].action != Q.RETRY_ACTION_USE_TCP:
                         responsive_cause_index = prev_index
                         responsive_cause_index_tcp = tcp
                     tcp_valid = True
                 else:
                     if responsive_cause_index is None and \
-                            not udp_valid and prev_index is not None and self.history[prev_index].action != Q.RETRY_ACTION_USE_UDP:
+                                not udp_valid and prev_index is not None and self.history[prev_index].action != Q.RETRY_ACTION_USE_UDP:
                         responsive_cause_index = prev_index
                         responsive_cause_index_tcp = tcp
                     udp_valid = True
@@ -418,8 +404,9 @@ class DNSResponse:
                 #TODO option data
                 edns_options.append(dns.edns.GenericOption(retry.action_arg, b''))
             elif retry.action == Q.RETRY_ACTION_REMOVE_EDNS_OPTION:
-                filtered_options = [x for x in edns_options if retry.action_arg == x.otype]
-                if filtered_options:
+                if filtered_options := [
+                    x for x in edns_options if retry.action_arg == x.otype
+                ]:
                     edns_options.remove(filtered_options[0])
                     # If COOKIE option was removed, then reset
                     # server_cookie_status
@@ -434,27 +421,22 @@ class DNSResponse:
 
             prev_index = i
 
-        # Mark responsiveness if the ultimate query didn't result in network
-        # error or timeout.
         if self.error not in (Q.RESPONSE_ERROR_NETWORK_ERROR, Q.RESPONSE_ERROR_TIMEOUT):
             if tcp:
                 tcp_responsive = True
             else:
                 udp_responsive = True
 
-        # If the last cause/action resulted in a valid response where there
-        # wasn't previously on the same protocol, then mark the cause/action.
         if self.is_valid_response():
             if tcp:
                 if responsive_cause_index is None and \
-                        not tcp_valid and prev_index is not None and self.history[prev_index].action != Q.RETRY_ACTION_USE_TCP:
+                            not tcp_valid and prev_index is not None and self.history[prev_index].action != Q.RETRY_ACTION_USE_TCP:
                     responsive_cause_index = prev_index
                     responsive_cause_index_tcp = tcp
-            else:
-                if responsive_cause_index is None and \
-                        not udp_valid and prev_index is not None and self.history[prev_index].action != Q.RETRY_ACTION_USE_UDP:
-                    responsive_cause_index = prev_index
-                    responsive_cause_index_tcp = tcp
+            elif responsive_cause_index is None and \
+                            not udp_valid and prev_index is not None and self.history[prev_index].action != Q.RETRY_ACTION_USE_UDP:
+                responsive_cause_index = prev_index
+                responsive_cause_index_tcp = tcp
 
         # If EDNS was effectively disabled, reset EDNS options
         if edns < 0:
@@ -515,7 +497,7 @@ class DNSResponse:
         '''Return True if this response yields a referral for the queried
         name.'''
 
-        if not (self.is_valid_response() and self.is_complete_response()):
+        if not self.is_valid_response() or not self.is_complete_response():
             return False
         # if no bailiwick is specified, then we cannot classify it as a
         # referral
@@ -523,7 +505,7 @@ class DNSResponse:
             return False
         # if the qname is not a proper subdomain of the bailiwick, then it
         # is not a referral
-        if not (qname != bailiwick and qname.is_subdomain(bailiwick)):
+        if qname == bailiwick or not qname.is_subdomain(bailiwick):
             return False
         # if the name exists in the answer section with the requested rdtype or
         # CNAME, then it can't be a referral
@@ -541,12 +523,8 @@ class DNSResponse:
         if proper:
             if [x for x in self.message.authority if qname == x.name and x.rdtype == dns.rdatatype.NS and x.rdclass == rdclass]:
                 return True
-        # if proper referral is NOT requested, qname is a subdomain of
-        # (including equal to) an NS RRset in the authority, and qname is not
-        # equal to bailiwick, then it is a referral
-        else:
-            if [x for x in self.message.authority if qname.is_subdomain(x.name) and bailiwick != x.name and x.rdtype == dns.rdatatype.NS and x.rdclass == rdclass]:
-                return True
+        elif [x for x in self.message.authority if qname.is_subdomain(x.name) and bailiwick != x.name and x.rdtype == dns.rdatatype.NS and x.rdclass == rdclass]:
+            return True
         return False
 
     def is_upward_referral(self, qname):
@@ -563,31 +541,32 @@ class DNSResponse:
         and type in the answer section.  If include_cname is False, then only
         non-CNAME records count.'''
 
-        if not (self.is_valid_response() and self.is_complete_response()):
+        if not self.is_valid_response() or not self.is_complete_response():
             return False
         if rdtype == dns.rdatatype.ANY and [x for x in self.message.answer if x.name == qname]:
             return True
         rdtypes = [rdtype]
         if include_cname:
             rdtypes.append(dns.rdatatype.CNAME)
-        if [x for x in self.message.answer if x.name == qname and x.rdtype in rdtypes]:
-            return True
-        return False
+        return bool(
+            [
+                x
+                for x in self.message.answer
+                if x.name == qname and x.rdtype in rdtypes
+            ]
+        )
 
     def is_nxdomain(self, qname, rdtype):
         '''Return True if this response indicates that the queried name does
         not exist (i.e., is NXDOMAIN).'''
 
-        if not (self.is_valid_response() and self.is_complete_response()):
+        if not self.is_valid_response() or not self.is_complete_response():
             return False
 
         if [x for x in self.message.answer if x.name == qname and x.rdtype in (rdtype, dns.rdatatype.CNAME)]:
             return False
 
-        if self.message.rcode() == dns.rcode.NXDOMAIN:
-            return True
-
-        return False
+        return self.message.rcode() == dns.rcode.NXDOMAIN
 
     def is_delegation(self, qname, rdtype):
         '''Return True if this response (from a request to a server

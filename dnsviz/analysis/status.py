@@ -204,23 +204,20 @@ class RRSIGStatus(object):
                 if self.validation_status == RRSIG_STATUS_VALID:
                     self.validation_status = RRSIG_STATUS_INDETERMINATE_NO_DNSKEY
 
+            elif self.dnskey.rdata.algorithm in DNSKEY_ALGS_VALIDATION_PROHIBITED:
+                # In this case, specification dictates that the algorithm
+                # MUST NOT be validated, so we mark it as ignored.
+                if self.validation_status == RRSIG_STATUS_VALID:
+                    self.validation_status = RRSIG_STATUS_ALGORITHM_IGNORED
             else:
-                # If there is a DNSKEY, then we look at *why* we are ignoring
-                # the cryptographic signature.
-                if self.dnskey.rdata.algorithm in DNSKEY_ALGS_VALIDATION_PROHIBITED:
-                    # In this case, specification dictates that the algorithm
-                    # MUST NOT be validated, so we mark it as ignored.
-                    if self.validation_status == RRSIG_STATUS_VALID:
-                        self.validation_status = RRSIG_STATUS_ALGORITHM_IGNORED
-                else:
-                    # In this case, we can't validate this particular
-                    # algorithm, either because the code doesn't support it,
-                    # or because we have been explicitly directed to ignore it.
-                    # In either case, mark it as "UNKNOWN", and warn that it is
-                    # not supported.
-                    if self.validation_status == RRSIG_STATUS_VALID:
-                        self.validation_status = RRSIG_STATUS_INDETERMINATE_UNKNOWN_ALGORITHM
-                    self.warnings.append(Errors.AlgorithmNotSupported(algorithm=self.rrsig.algorithm))
+                # In this case, we can't validate this particular
+                # algorithm, either because the code doesn't support it,
+                # or because we have been explicitly directed to ignore it.
+                # In either case, mark it as "UNKNOWN", and warn that it is
+                # not supported.
+                if self.validation_status == RRSIG_STATUS_VALID:
+                    self.validation_status = RRSIG_STATUS_INDETERMINATE_UNKNOWN_ALGORITHM
+                self.warnings.append(Errors.AlgorithmNotSupported(algorithm=self.rrsig.algorithm))
 
         # Independent of whether or not we considered the cryptographic
         # validation, issue a warning if we are using an algorithm for which
@@ -235,8 +232,8 @@ class RRSIGStatus(object):
         elif self.rrsig.algorithm in DNSKEY_ALGS_NOT_RECOMMENDED:
             self.warnings.append(Errors.AlgorithmNotRecommended(algorithm=self.rrsig.algorithm))
 
-        if self.rrset.ttl_cmp:
-            if self.rrset.rrset.ttl != self.rrset.rrsig_info[self.rrsig].ttl:
+        if self.rrset.rrset.ttl != self.rrset.rrsig_info[self.rrsig].ttl:
+            if self.rrset.ttl_cmp:
                 self.warnings.append(Errors.RRsetTTLMismatch(rrset_ttl=self.rrset.rrset.ttl, rrsig_ttl=self.rrset.rrsig_info[self.rrsig].ttl))
         if self.rrset.rrsig_info[self.rrsig].ttl > self.rrsig.original_ttl:
             self.errors.append(Errors.OriginalTTLExceeded(rrset_ttl=self.rrset.rrset.ttl, original_ttl=self.rrsig.original_ttl))
@@ -244,28 +241,24 @@ class RRSIGStatus(object):
         min_ttl = min(self.rrset.rrset.ttl, self.rrset.rrsig_info[self.rrsig].ttl, self.rrsig.original_ttl)
 
         if (zone_name is not None and self.rrsig.signer != zone_name) or \
-                (zone_name is None and not self.rrset.rrset.name.is_subdomain(self.rrsig.signer)):
+                    (zone_name is None and not self.rrset.rrset.name.is_subdomain(self.rrsig.signer)):
             if self.validation_status == RRSIG_STATUS_VALID:
                 self.validation_status = RRSIG_STATUS_INVALID
-            if zone_name is None:
-                zn = self.rrsig.signer
-            else:
-                zn = zone_name
+            zn = self.rrsig.signer if zone_name is None else zone_name
             self.errors.append(Errors.SignerNotZone(zone_name=fmt.humanize_name(zn), signer_name=fmt.humanize_name(self.rrsig.signer)))
 
         if self.dnskey is not None and \
-                self.dnskey.rdata.flags & fmt.DNSKEY_FLAGS['revoke'] and self.rrsig.covers() != dns.rdatatype.DNSKEY:
-            if self.rrsig.key_tag != self.dnskey.key_tag:
-                if self.validation_status == RRSIG_STATUS_VALID:
-                    self.validation_status = RRSIG_STATUS_INDETERMINATE_MATCH_PRE_REVOKE
-            else:
+                    self.dnskey.rdata.flags & fmt.DNSKEY_FLAGS['revoke'] and self.rrsig.covers() != dns.rdatatype.DNSKEY:
+            if self.rrsig.key_tag == self.dnskey.key_tag:
                 self.errors.append(Errors.DNSKEYRevokedRRSIG())
                 if self.validation_status == RRSIG_STATUS_VALID:
                     self.validation_status = RRSIG_STATUS_INVALID
 
+            elif self.validation_status == RRSIG_STATUS_VALID:
+                self.validation_status = RRSIG_STATUS_INDETERMINATE_MATCH_PRE_REVOKE
         sig_len = len(self.rrsig.signature) << 3
         if self.rrsig.algorithm in RRSIG_SIG_LENGTHS_BY_ALGORITHM and \
-                sig_len != RRSIG_SIG_LENGTHS_BY_ALGORITHM[self.rrsig.algorithm]:
+                    sig_len != RRSIG_SIG_LENGTHS_BY_ALGORITHM[self.rrsig.algorithm]:
             self.errors.append(RRSIG_SIG_LENGTH_ERRORS[self.rrsig.algorithm](length=sig_len))
 
         if self.reference_ts < self.rrsig.inception:
@@ -292,7 +285,7 @@ class RRSIGStatus(object):
                 self.errors.append(Errors.SignatureInvalid())
 
     def __str__(self):
-        return 'RRSIG covering %s/%s' % (fmt.humanize_name(self.rrset.rrset.name), dns.rdatatype.to_text(self.rrset.rrset.rdtype))
+        return f'RRSIG covering {fmt.humanize_name(self.rrset.rrset.name)}/{dns.rdatatype.to_text(self.rrset.rrset.rdtype)}'
 
     def serialize(self, consolidate_clients=True, loglevel=logging.DEBUG, html_format=False, map_ip_to_ns_name=None):
         d = OrderedDict()

@@ -46,7 +46,7 @@ class IPAddr(str):
         try:
             ipaddr_bytes = socket.inet_pton(af, string)
         except socket.error:
-            raise ValueError('Invalid value for IP address: %s' % string)
+            raise ValueError(f'Invalid value for IP address: {string}')
         obj = super(IPAddr, cls).__new__(cls, socket.inet_ntop(af, ipaddr_bytes))
         obj._ipaddr_bytes = ipaddr_bytes
         obj.version = vers
@@ -54,7 +54,7 @@ class IPAddr(str):
 
     def _check_class_for_cmp(self, other):
         if self.__class__ != other.__class__:
-            raise TypeError('Cannot compare IPAddr to %s!' % other.__class__.__name__)
+            raise TypeError(f'Cannot compare IPAddr to {other.__class__.__name__}!')
 
     def __lt__(self, other):
         self._check_class_for_cmp(other)
@@ -78,16 +78,13 @@ class IPAddr(str):
 
     def arpa_name(self):
         if self.version == 6:
-            nibbles = [n for n in binascii.hexlify(self._ipaddr_bytes)]
+            nibbles = list(binascii.hexlify(self._ipaddr_bytes))
             nibbles.reverse()
-            name = '.'.join(nibbles)
-            name += '.ip6.arpa.'
+            return '.'.join(nibbles) + '.ip6.arpa.'
         else:
             octets = self.split('.')
             octets.reverse()
-            name = '.'.join(octets)
-            name += '.in-addr.arpa.'
-        return name
+            return '.'.join(octets) + '.in-addr.arpa.'
 
 LOOPBACK_IPV4_RE = re.compile(r'^127')
 IPV4_MAPPED_IPV6_RE = re.compile(r'^::(ffff:)?\d+.\d+.\d+.\d+$', re.IGNORECASE)
